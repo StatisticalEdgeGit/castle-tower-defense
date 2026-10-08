@@ -6,6 +6,8 @@ import type { Fx, MatchPlayerInfo, MatchStartInfo, PlayerSnap, Snapshot, TowerSn
 import type { TowerType } from '../../shared/types';
 import { SnapshotBuffer } from './interpolation';
 
+export const EMOTE_SHOW_MS = 3000;
+
 export interface FxEvent {
   n: number;
   seq: number;
@@ -35,6 +37,25 @@ class GameClient {
   private uiListeners = new Set<() => void>();
   private snapListeners = new Set<() => void>();
   snapVersion = 0;
+  /** recent emotes (shown for EMOTE_SHOW_MS) */
+  emotes: { key: number; playerId: string; emoteId: string; at: number }[] = [];
+  private emoteListeners = new Set<() => void>();
+  private emoteKey = 0;
+
+  addEmote(playerId: string, emoteId: string): void {
+    const now = Date.now();
+    this.emotes = [...this.emotes.filter((e) => now - e.at < EMOTE_SHOW_MS && e.playerId !== playerId), { key: ++this.emoteKey, playerId, emoteId, at: now }];
+    for (const l of this.emoteListeners) l();
+    window.setTimeout(() => {
+      this.emotes = this.emotes.filter((e) => Date.now() - e.at < EMOTE_SHOW_MS);
+      for (const l of this.emoteListeners) l();
+    }, EMOTE_SHOW_MS + 50);
+  }
+
+  subscribeEmotes = (fn: () => void) => {
+    this.emoteListeners.add(fn);
+    return () => this.emoteListeners.delete(fn);
+  };
 
   reset(info: MatchStartInfo, myId: string): void {
     const same = this.info?.matchId === info.matchId;
@@ -131,6 +152,11 @@ class GameClient {
 }
 
 export const game = new GameClient();
+
+/** Latest emote (if any, still visible) for each player. */
+export function useEmotes(): GameClient['emotes'] {
+  return useSyncExternalStore(game.subscribeEmotes, () => game.emotes);
+}
 
 export function useGameUi(): UiState {
   return useSyncExternalStore(game.subscribeUi, () => game.ui);

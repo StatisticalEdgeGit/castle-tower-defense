@@ -3,7 +3,8 @@ import { DIFFICULTY, ECONOMY, MODE_INFO, PLAYER_COLORS, SEND_PACKS, TARGET_MODE_
 import { MAPS } from '../../shared/maps';
 import { EV, type Snapshot } from '../../shared/protocol';
 import { PACK_IDS, TARGET_MODES, type PackId, type TowerType } from '../../shared/types';
-import { game, useGameUi, useSnapshot } from '../game/gameState';
+import { game, useEmotes, useGameUi, useSnapshot } from '../game/gameState';
+import { emoteDef } from './hub/bits';
 import { attachBoardInput, sellSelected, upgradeSelected } from '../game/input';
 import { BoardRenderer } from '../game/renderer';
 import { act, leaveRoom, request } from '../net';
@@ -88,7 +89,7 @@ function fmtTime(sec: number): string {
 }
 
 // ── HUD ────────────────────────────────────────────────────────────────────
-function Hud() {
+function Hud({ onEmote }: { onEmote: () => void }) {
   const snap = useSnapshot(10);
   const info = game.info!;
   const me = snap?.players.find((p) => p.id === game.myId);
@@ -158,21 +159,29 @@ function Hud() {
         </>
       )}
       <span className="spacer" />
+      <button className="btn btn-sm" title="Emotes (E)" onClick={onEmote}>
+        😀 <span className="kbd">E</span>
+      </button>
       <span className="muted nowrap" style={{ fontSize: 12 }}>
-        {MODE_INFO[info.mode].short} · {MAPS[info.mapId].name} · {DIFFICULTY[info.difficulty].label}
+        {info.ranked ? `🏆 Ranked ${info.mode === 'ffa' ? 'Duel' : '2v2'}` : info.endless ? 'Endless' : MODE_INFO[info.mode].short} · {MAPS[info.mapId].name} ·{' '}
+        {DIFFICULTY[info.difficulty].label}
       </span>
       <button
         className="btn btn-sm btn-danger"
         onClick={() =>
           confirmDialog({
-            title: 'Leave this game?',
-            text: info.mode === 'coop' ? 'Your towers will keep defending for your team.' : 'Your board will keep defending without you, but you will forfeit.',
-            confirmLabel: 'Leave game',
+            title: info.ranked ? 'Forfeit this ranked match?' : 'Leave this game?',
+            text: info.ranked
+              ? 'Leaving a ranked match counts as a loss.'
+              : info.mode === 'coop'
+                ? 'Your towers will keep defending for your team.'
+                : 'Your board will keep defending without you, but you will forfeit.',
+            confirmLabel: info.ranked ? 'Forfeit' : 'Leave game',
             onConfirm: () => void leaveRoom(),
           })
         }
       >
-        Leave
+        {info.ranked ? 'Forfeit' : 'Leave'}
       </button>
     </div>
   );
@@ -285,6 +294,13 @@ function TowerPanel() {
           {row('Chains', cur.chains, next?.chains)}
           {row('Income / wave', cur.income ? `$${cur.income}` : undefined, next?.income ? `$${next.income}` : undefined)}
           {cur.pulse || next?.pulse ? row('Pulse', cur.pulse ? 'all in range' : 'no', next?.pulse ? 'all in range' : undefined) : null}
+          {row('Min range', cur.minRange, next?.minRange)}
+          {row('Burn', cur.burnDps ? `${cur.burnDps}/s · ${cur.burnTime}s` : undefined, next?.burnDps ? `${next.burnDps}/s · ${next.burnTime}s` : undefined)}
+          {row('Cone', cur.cone ? `${cur.cone * 2}°` : undefined, next?.cone ? `${next.cone * 2}°` : undefined)}
+          {row('Poison', cur.poisonDps ? `${cur.poisonDps}/s ×${cur.poisonMaxStacks}` : undefined, next?.poisonDps ? `${next.poisonDps}/s ×${next.poisonMaxStacks}` : undefined)}
+          {row('Beam ramp', cur.rampMax ? `up to ×${cur.rampMax}` : undefined, next?.rampMax ? `up to ×${next.rampMax}` : undefined)}
+          {row('Buff', cur.buffDmg ? `+${Math.round(cur.buffDmg * 100)}% dmg, +${Math.round((cur.buffRate ?? 0) * 100)}% rate` : undefined, next?.buffDmg ? `+${Math.round(next.buffDmg * 100)}% / +${Math.round((next.buffRate ?? 0) * 100)}%` : undefined)}
+          {row('Buff radius', cur.buffRadius, next?.buffRadius)}
           {def.ignoresArmor && row('Armor', 'ignores')}
         </tbody>
       </table>
@@ -407,6 +423,7 @@ function SendPanel() {
 // ── Mini boards (versus) ───────────────────────────────────────────────────
 function MiniBoard({ boardId }: { boardId: number }) {
   const { canvasRef, wrapRef } = useCanvasRenderer(boardId, true);
+  const emotes = useEmotes();
   const snap = useSnapshot(5);
   const ui = useGameUi();
   const info = game.info!;
@@ -436,6 +453,14 @@ function MiniBoard({ boardId }: { boardId: number }) {
       <div ref={wrapRef}>
         <canvas ref={canvasRef} />
       </div>
+      {emotes
+        .filter((e) => defenders.some((d) => d.id === e.playerId))
+        .slice(-1)
+        .map((e) => (
+          <div key={e.key} className="emote-bubble">
+            <span className="e">{emoteDef(e.emoteId).emoji}</span>
+          </div>
+        ))}
       {isTarget && meAlive && (
         <div className="target-tag" style={{ padding: '2px 6px' }}>
           🎯 SEND TARGET
@@ -465,6 +490,7 @@ function MiniBoards() {
 // ── Scoreboard ─────────────────────────────────────────────────────────────
 function Scoreboard() {
   const snap = useSnapshot(4);
+  const emotes = useEmotes();
   const info = game.info!;
   if (!snap) return null;
   return (
@@ -476,10 +502,15 @@ function Scoreboard() {
         return (
           <div key={p.id} className={`score-row ${ps && !ps.alive ? 'dead' : ''}`}>
             <span className="swatch" style={{ background: PLAYER_COLORS[p.color] }} />
+            <span className="lvl-inline" style={{ minWidth: 18, height: 16, fontSize: 10 }}>
+              {p.level}
+            </span>
             <span className="grow ellipsis" style={{ fontWeight: p.id === game.myId ? 700 : 500 }}>
               {p.name}
               {p.guest ? ' ·g' : ''}
+              {p.bot ? ' 🤖' : ''}
             </span>
+            {emotes.find((e) => e.playerId === p.id) && <span title="emote">{emoteDef(emotes.find((e) => e.playerId === p.id)!.emoteId).emoji}</span>}
             {!ps?.connected && <span title="Disconnected">📴</span>}
             {info.mode === 'coop' && ps?.ready && <span title="Ready">✔</span>}
             <span style={{ color: 'var(--gold)', fontSize: 12 }}>${ps?.money ?? 0}</span>
@@ -531,6 +562,58 @@ function GameChat({ inputRef, open, setOpen }: { inputRef: React.RefObject<HTMLI
   );
 }
 
+// ── Emotes ─────────────────────────────────────────────────────────────────
+function EmoteWheel({ onClose }: { onClose: () => void }) {
+  const mine = game.myInfo()?.emotes ?? [];
+  const list = mine.length ? mine : ['gg', 'wow', 'laugh', 'angry'];
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const n = Number(e.key);
+      if (e.altKey && n >= 1 && n <= list.length) {
+        void send(list[n - 1]);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  });
+  const send = async (id: string) => {
+    onClose();
+    const r = await request(EV.emote, { emoteId: id });
+    if (!r.ok) toast('warn', r.error);
+  };
+  return (
+    <div className="emote-wheel" onMouseLeave={onClose}>
+      {list.slice(0, 12).map((id) => (
+        <button key={id} onClick={() => void send(id)} title={emoteDef(id).text}>
+          {emoteDef(id).emoji}
+          <span>{emoteDef(id).text}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function EmoteStrip() {
+  const emotes = useEmotes();
+  if (!emotes.length) return null;
+  return (
+    <div className="emote-strip">
+      {emotes.map((e) => {
+        const p = game.playerInfo(e.playerId);
+        const d = emoteDef(e.emoteId);
+        return (
+          <div key={e.key} className="emote-bubble" style={{ borderLeft: `5px solid ${p ? PLAYER_COLORS[p.color] : '#888'}` }}>
+            <span className="e">{d.emoji}</span>
+            <span>
+              {p?.name ?? '?'}: {d.text}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 // ── Main board ─────────────────────────────────────────────────────────────
 function MainBoard() {
   const ui = useGameUi();
@@ -554,6 +637,7 @@ export function GameScreen() {
   const snap = useSnapshot(4);
   const chatRef = useRef<HTMLInputElement>(null);
   const [chatOpen, setChatOpen] = useState(false);
+  const [wheel, setWheel] = useState(false);
   useRenderLoop();
 
   useEffect(() => {
@@ -574,6 +658,8 @@ export function GameScreen() {
       else if (e.key === ' ' && game.info?.mode === 'coop') {
         e.preventDefault();
         void act(EV.ready, {});
+      } else if (e.key === 'e' || e.key === 'E') {
+        setWheel((w) => !w);
       } else if (e.key === 'Enter') {
         e.preventDefault();
         setChatOpen(true);
@@ -593,7 +679,7 @@ export function GameScreen() {
 
   return (
     <div className="game-root">
-      <Hud />
+      <Hud onEmote={() => setWheel((w) => !w)} />
       <div className="game-body">
         {versus && (
           <div className="game-left">
@@ -607,6 +693,8 @@ export function GameScreen() {
             </div>
           )}
           <MainBoard />
+          <EmoteStrip />
+          {wheel && <EmoteWheel onClose={() => setWheel(false)} />}
           <GameChat inputRef={chatRef} open={chatOpen} setOpen={setChatOpen} />
         </div>
         <div className="game-right">

@@ -13,7 +13,8 @@ const devMode = process.argv.includes('--dev');
 const dbPath = process.env.DB_PATH ? path.resolve(process.env.DB_PATH) : path.join(root, 'data', 'db.json');
 
 async function main() {
-  const srv = await startServer({ port, host: '0.0.0.0', dbPath, staticDir: hasClient ? staticDir : null });
+  const devTools = process.env.DEV_TOOLS === '1' || process.env.DEV_TOOLS === 'true';
+  const srv = await startServer({ port, host: '0.0.0.0', dbPath, staticDir: hasClient ? staticDir : null, progression: { devTools } });
   const lan = lanAddresses();
   const line = '─'.repeat(56);
   console.log(`\n${line}\n  Tower defense server running on port ${srv.port}`);
@@ -30,7 +31,8 @@ async function main() {
     console.log('  Dev client (Vite): http://localhost:5180');
     for (const ip of lan) console.log(`  LAN dev client:    http://${ip}:5180`);
   }
-  console.log(`  Data:    ${path.relative(process.cwd(), dbPath) || dbPath}\n${line}\n`);
+  console.log(`  Data:    ${path.relative(process.cwd(), dbPath) || dbPath}`);
+  console.log(`  Dev tools: ${devTools ? 'ON (press \` in the app)' : 'off (set DEV_TOOLS=1)'}\n${line}\n`);
 
   let stopping = false;
   const stop = async (sig: string) => {

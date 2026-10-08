@@ -13,6 +13,11 @@ export const TOWER_COLORS: Record<TowerType, { base: string; dark: string; accen
   sniper: { base: '#5f8a4e', dark: '#33502a', accent: '#d7ff9e' },
   tesla: { base: '#8a63ff', dark: '#47309b', accent: '#9ef0ff' },
   mine: { base: '#c99a2e', dark: '#7a5a14', accent: '#ffe27a' },
+  flame: { base: '#e8590c', dark: '#6e2a07', accent: '#ffd166' },
+  mortar: { base: '#6b705c', dark: '#34372c', accent: '#ffb547' },
+  venom: { base: '#58b958', dark: '#24502a', accent: '#c6ff6b' },
+  prism: { base: '#9ad7ff', dark: '#283e6b', accent: '#ffffff' },
+  totem: { base: '#a0522d', dark: '#4f2512', accent: '#ff6b6b' },
 };
 
 export const ENEMY_COLORS: Record<EnemyType, string> = {
@@ -23,6 +28,9 @@ export const ENEMY_COLORS: Record<EnemyType, string> = {
   brute: '#b5523b',
   healer: '#f1f5ff',
   warlord: '#c0263a',
+  splitter: '#9b6bff',
+  splitling: '#d0b8ff',
+  shield: '#5c7cfa',
 };
 
 export function enemyTypeFromIndex(i: number): EnemyType {
@@ -236,6 +244,122 @@ export function drawTower(ctx: CanvasRenderingContext2D, type: TowerType, x: num
       }
       break;
     }
+    case 'flame': {
+      ctx.fillStyle = c.base;
+      ctx.beginPath();
+      ctx.arc(0, 0, s * 0.25, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#5a1f06';
+      ctx.beginPath();
+      ctx.arc(-s * 0.06, 0, s * 0.12, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.rotate(o.angle);
+      ctx.translate(-rec, 0);
+      ctx.fillStyle = '#3a3a3a';
+      roundRect(ctx, 0, -s * 0.07, s * 0.34, s * 0.14, s * 0.04);
+      ctx.fill();
+      const fl = 0.75 + 0.25 * Math.sin(t * 25 + x);
+      ctx.fillStyle = `rgba(255,${Math.round(150 + 80 * fl)},60,${0.85 * fl})`;
+      ctx.beginPath();
+      ctx.moveTo(s * 0.34, -s * 0.06);
+      ctx.quadraticCurveTo(s * (0.44 + 0.04 * fl), 0, s * 0.34, s * 0.06);
+      ctx.fill();
+      break;
+    }
+    case 'mortar': {
+      ctx.fillStyle = c.base;
+      ctx.beginPath();
+      ctx.arc(0, 0, s * 0.27, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.rotate(o.angle);
+      ctx.translate(-rec, 0);
+      ctx.fillStyle = '#25271f';
+      roundRect(ctx, -s * 0.12, -s * 0.15, s * 0.32, s * 0.3, s * 0.08);
+      ctx.fill();
+      ctx.fillStyle = '#0f100c';
+      ctx.beginPath();
+      ctx.ellipse(s * 0.2, 0, s * 0.05, s * 0.13, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = c.accent;
+      ctx.fillRect(-s * 0.08, -s * 0.16, s * 0.05, s * 0.32);
+      break;
+    }
+    case 'venom': {
+      ctx.fillStyle = c.base;
+      ctx.beginPath();
+      ctx.arc(0, 0, s * 0.24, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.rotate(o.angle);
+      ctx.translate(-rec, 0);
+      ctx.fillStyle = '#1d3a1f';
+      roundRect(ctx, 0, -s * 0.05, s * 0.3, s * 0.1, s * 0.03);
+      ctx.fill();
+      ctx.rotate(-o.angle);
+      const bub = 0.85 + 0.15 * Math.sin(t * 5 + y);
+      ctx.fillStyle = c.accent;
+      ctx.beginPath();
+      ctx.arc(0, 0, s * 0.13 * bub, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,0.5)';
+      ctx.beginPath();
+      ctx.arc(-s * 0.04, -s * 0.04, s * 0.035, 0, Math.PI * 2);
+      ctx.fill();
+      break;
+    }
+    case 'prism': {
+      ctx.rotate(t * 0.6);
+      const g = ctx.createLinearGradient(-s * 0.25, -s * 0.25, s * 0.25, s * 0.25);
+      g.addColorStop(0, '#ff8ad8');
+      g.addColorStop(0.35, '#9ad7ff');
+      g.addColorStop(0.7, '#b6ff9a');
+      g.addColorStop(1, '#fff3a0');
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.moveTo(0, -s * 0.3);
+      ctx.lineTo(s * 0.24, 0);
+      ctx.lineTo(0, s * 0.3);
+      ctx.lineTo(-s * 0.24, 0);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(255,255,255,0.8)';
+      ctx.lineWidth = Math.max(1, s * 0.03);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(0, -s * 0.3);
+      ctx.lineTo(0, s * 0.3);
+      ctx.moveTo(-s * 0.24, 0);
+      ctx.lineTo(s * 0.24, 0);
+      ctx.stroke();
+      break;
+    }
+    case 'totem': {
+      const glow = 0.5 + 0.5 * Math.sin(t * 3 + x * 0.3);
+      ctx.fillStyle = `rgba(255,90,90,${0.15 + 0.15 * glow})`;
+      ctx.beginPath();
+      ctx.arc(0, 0, s * 0.34, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = c.base;
+      roundRect(ctx, -s * 0.12, -s * 0.3, s * 0.24, s * 0.56, s * 0.05);
+      ctx.fill();
+      ctx.fillStyle = c.dark;
+      ctx.fillRect(-s * 0.12, -s * 0.06, s * 0.24, s * 0.04);
+      ctx.fillRect(-s * 0.12, s * 0.1, s * 0.24, s * 0.04);
+      ctx.fillStyle = c.accent;
+      ctx.beginPath();
+      ctx.arc(-s * 0.05, -s * 0.17, s * 0.03, 0, Math.PI * 2);
+      ctx.arc(s * 0.05, -s * 0.17, s * 0.03, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#e8d5b0';
+      ctx.beginPath();
+      ctx.moveTo(-s * 0.12, -s * 0.26);
+      ctx.lineTo(-s * 0.24, -s * 0.36);
+      ctx.lineTo(-s * 0.12, -s * 0.2);
+      ctx.moveTo(s * 0.12, -s * 0.26);
+      ctx.lineTo(s * 0.24, -s * 0.36);
+      ctx.lineTo(s * 0.12, -s * 0.2);
+      ctx.fill();
+      break;
+    }
   }
   ctx.restore();
   // level pips
@@ -260,7 +384,7 @@ export function drawTower(ctx: CanvasRenderingContext2D, type: TowerType, x: num
 
 // ── Enemies ────────────────────────────────────────────────────────────────
 export function enemyRadius(type: EnemyType, s: number): number {
-  const r: Record<EnemyType, number> = { grunt: 0.24, runner: 0.21, swarm: 0.14, knight: 0.27, brute: 0.34, healer: 0.24, warlord: 0.46 };
+  const r: Record<EnemyType, number> = { grunt: 0.24, runner: 0.21, swarm: 0.14, knight: 0.27, brute: 0.34, healer: 0.24, warlord: 0.46, splitter: 0.28, splitling: 0.13, shield: 0.28 };
   return r[type] * s;
 }
 
@@ -272,10 +396,14 @@ export function drawEnemy(
   s: number,
   dir: number,
   hpFrac: number,
-  slowed: boolean,
+  flags: number,
   time: number,
   showHp = true,
 ) {
+  const slowed = (flags & 1) !== 0;
+  const shielded = (flags & 2) !== 0;
+  const burning = (flags & 4) !== 0;
+  const poisoned = (flags & 8) !== 0;
   const r = enemyRadius(type, s);
   const col = ENEMY_COLORS[type];
   const bob = Math.sin(time * 10 + x * 0.1) * s * 0.015;
@@ -371,6 +499,46 @@ export function drawEnemy(
       ctx.fillRect(-r * 0.6, -r * 0.2, r * 1.2, r * 0.4);
       break;
     }
+    case 'splitter': {
+      ctx.fillStyle = col;
+      ctx.beginPath();
+      for (let i = 0; i < 3; i++) {
+        const a = (i / 3) * Math.PI * 2 + time * 1.2;
+        ctx.moveTo(Math.cos(a) * r * 0.45 + r * 0.55, Math.sin(a) * r * 0.45);
+        ctx.arc(Math.cos(a) * r * 0.45, Math.sin(a) * r * 0.45, r * 0.55, 0, Math.PI * 2);
+      }
+      ctx.fill();
+      ctx.stroke();
+      eyes(ctx, dir, r * 0.8);
+      break;
+    }
+    case 'splitling': {
+      ctx.fillStyle = col;
+      ctx.beginPath();
+      ctx.arc(0, 0, r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      break;
+    }
+    case 'shield': {
+      ctx.fillStyle = col;
+      ctx.beginPath();
+      ctx.arc(0, 0, r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.rotate(dir);
+      ctx.fillStyle = '#dbe4ff';
+      ctx.beginPath();
+      ctx.moveTo(r * 0.35, -r * 0.75);
+      ctx.lineTo(r * 1.0, -r * 0.55);
+      ctx.lineTo(r * 1.0, r * 0.25);
+      ctx.lineTo(r * 0.65, r * 0.8);
+      ctx.lineTo(r * 0.35, r * 0.25);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      break;
+    }
     case 'warlord': {
       ctx.fillStyle = '#5a0c18';
       ctx.beginPath();
@@ -405,6 +573,37 @@ export function drawEnemy(
       ctx.stroke();
       break;
     }
+  }
+  if (poisoned) {
+    ctx.fillStyle = 'rgba(120,230,80,0.35)';
+    ctx.beginPath();
+    ctx.arc(0, 0, r * 1.02, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = 'rgba(190,255,120,0.9)';
+    for (let i = 0; i < 3; i++) {
+      const ph = (time * 1.5 + i / 3) % 1;
+      ctx.beginPath();
+      ctx.arc(Math.sin(i * 2.1) * r * 0.6, -r * (0.2 + ph * 1.1), Math.max(0.8, r * 0.13 * (1 - ph)), 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+  if (burning) {
+    for (let i = 0; i < 4; i++) {
+      const ph = (time * 3 + i / 4) % 1;
+      ctx.fillStyle = `rgba(255,${Math.round(120 + 100 * (1 - ph))},40,${0.85 * (1 - ph)})`;
+      ctx.beginPath();
+      ctx.arc(Math.cos(i * 1.7) * r * 0.55, -r * (0.1 + ph * 1.2), Math.max(1, r * 0.22 * (1 - ph)), 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+  if (shielded) {
+    ctx.strokeStyle = 'rgba(170,200,255,0.95)';
+    ctx.fillStyle = 'rgba(120,160,255,0.18)';
+    ctx.lineWidth = Math.max(1, s * 0.035);
+    ctx.beginPath();
+    ctx.arc(0, 0, r * 1.3, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
   }
   if (slowed) {
     ctx.fillStyle = 'rgba(140,215,255,0.38)';

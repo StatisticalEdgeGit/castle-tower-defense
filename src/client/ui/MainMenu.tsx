@@ -5,13 +5,11 @@ import { EV, ROOM_CODE_ALPHABET } from '../../shared/protocol';
 import type { Difficulty, GameMode, MapId } from '../../shared/types';
 import { act, getSocket, joinRoom } from '../net';
 import { useStore } from '../store';
-import { TopBar } from './App';
 import { MapBadge, MapThumb, Switch } from './components';
-import { FriendsPanel } from './FriendsPanel';
 
 const MODE_ICON: Record<GameMode, string> = { coop: '🤝', ffa: '⚔️', teams: '🛡️' };
 
-function ProfileCard() {
+export function ProfileCard() {
   const user = useStore((s) => s.user);
   const stats = useStore((s) => s.stats);
   if (!user) return null;
@@ -77,7 +75,7 @@ function ProfileCard() {
   );
 }
 
-function JoinByCode() {
+export function JoinByCode() {
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
   const clean = (v: string) =>
@@ -115,7 +113,7 @@ function JoinByCode() {
   );
 }
 
-function CreateGame() {
+export function CreateGame() {
   const [mode, setMode] = useState<GameMode>('coop');
   const [mapId, setMapId] = useState<MapId>('greenfield');
   const [difficulty, setDifficulty] = useState<Difficulty>('normal');
@@ -182,7 +180,7 @@ function CreateGame() {
   );
 }
 
-function BrowseGames() {
+export function BrowseGames() {
   const rooms = useStore((s) => s.publicRooms);
   const connected = useStore((s) => s.connected);
   useEffect(() => {
@@ -224,30 +222,5 @@ function BrowseGames() {
         </div>
       )}
     </div>
-  );
-}
-
-export function MainMenu() {
-  return (
-    <>
-      <TopBar />
-      <div className="page">
-        <div className="menu-grid">
-          <div className="col" style={{ gap: 18 }}>
-            <ProfileCard />
-            <JoinByCode />
-          </div>
-          <div className="col" style={{ gap: 18 }}>
-            <CreateGame />
-            <BrowseGames />
-          </div>
-          <div className="col friends-col" style={{ gap: 18 }}>
-            <div className="panel">
-              <FriendsPanel />
-            </div>
-          </div>
-        </div>
-      </div>
-    </>
   );
 }

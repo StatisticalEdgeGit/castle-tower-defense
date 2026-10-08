@@ -1,8 +1,10 @@
 // Lobbies: create/join by code, settings, ready/teams/kick, chat, host migration,
-// reconnect grace, public browser, and starting matches.
+// reconnect grace, public browser, and starting matches. Ranked matches also run in
+// (private, single-use) rooms created by the matchmaker.
 import crypto from 'node:crypto';
 import { DIFFICULTY, MAX_PLAYERS, MODE_INFO, NET, TIMING } from '../shared/config';
 import { isMapId } from '../shared/maps';
+import type { RankedMode } from '../shared/progProtocol';
 import {
   EV,
   normalizeRoomCode,
@@ -14,7 +16,7 @@ import {
   type RoomSettingsPatch,
   type RoomState,
 } from '../shared/protocol';
-import type { Difficulty, GameMode, MapId } from '../shared/types';
+import { CLASSIC_TOWERS, type Difficulty, type GameMode, type MapId, type TowerType } from '../shared/types';
 import type { Identity } from './auth';
 import type { JsonDb } from './db';
 import { BROWSE_CHANNEL, fail, roomChannel, TokenBucket, userChannel, type IO, type Result, type Sock } from './io';
@@ -26,6 +28,7 @@ export interface RoomMember {
   id: string;
   name: string;
   guest: boolean;
+  bot: boolean;
   color: number;
   team: number;
   ready: boolean;
@@ -41,6 +44,9 @@ export interface Room {
   mapId: MapId;
   difficulty: Difficulty;
   isPublic: boolean;
+  equalLevels: boolean;
+  endless: boolean;
+  ranked: RankedMode | null;
   state: 'waiting' | 'playing';
   members: RoomMember[];
   chat: ChatMsg[];
@@ -56,16 +62,31 @@ export interface RoomManagerOptions {
   graceLobbySec?: number;
 }
 
+export interface MemberInfo {
+  loadout: TowerType[];
+  level: number;
+  icon: string;
+}
+
 /** Extension points for the progression layer. */
 export interface RoomHooks {
   /** customise a seat before the match starts (loadouts, card levels...) */
   seatFor?(room: Room, member: RoomMember): Partial<MatchSeat>;
   /** called after stats were persisted */
   afterMatch?(room: Room, results: MatchResults, match: Match): void;
+  /** lobby display info for a member */
+  memberInfo?(member: RoomMember): MemberInfo;
+  /** validate room settings for the host (campaign map locks, endless unlock...) */
+  validateSettings?(user: Identity, s: { mode: GameMode; mapId: MapId; endless: boolean }): string | null;
+  /** a member is leaving (forfeits in ranked) */
+  onLeave?(room: Room, userId: string): void;
 }
 
 const isMode = (m: unknown): m is GameMode => typeof m === 'string' && m in MODE_INFO;
 const isDifficulty = (d: unknown): d is Difficulty => typeof d === 'string' && d in DIFFICULTY;
+
+/** "Equal levels" defaults: ON for versus, OFF for co-op. */
+export const defaultEqualLevels = (mode: GameMode) => mode !== 'coop';
 
 export function sanitizeChat(text: unknown): string | null {
   if (typeof text !== 'string') return null;
@@ -105,7 +126,7 @@ export class RoomManager implements RoomsBridge {
       mode: room.mode,
       mapId: room.mapId,
       difficulty: room.difficulty,
-      joinable: room.state === 'waiting' && room.members.length < MAX_PLAYERS,
+      joinable: room.state === 'waiting' && !room.ranked && room.members.length < MAX_PLAYERS,
       members: room.members.map((m) => m.id),
     };
   }
@@ -143,18 +164,28 @@ export class RoomManager implements RoomsBridge {
       difficulty: room.difficulty,
       isPublic: room.isPublic,
       state: room.state,
-      players: room.members.map((m) => ({
-        id: m.id,
-        name: m.name,
-        guest: m.guest,
-        color: m.color,
-        team: m.team,
-        ready: m.ready,
-        connected: m.connected,
-      })),
+      players: room.members.map((m) => {
+        const info = this.hooks.memberInfo?.(m) ?? { loadout: CLASSIC_TOWERS.slice(), level: 1, icon: 'shield' };
+        return {
+          id: m.id,
+          name: m.name,
+          guest: m.guest,
+          color: m.color,
+          team: m.team,
+          ready: m.ready,
+          connected: m.connected,
+          bot: m.bot,
+          loadout: info.loadout,
+          level: info.level,
+          icon: info.icon,
+        };
+      }),
       chat: room.chat.slice(-50),
       maxPlayers: MAX_PLAYERS,
       lastResults: room.lastResults,
+      equalLevels: room.equalLevels,
+      endless: room.endless,
+      ranked: room.ranked,
     };
   }
 
@@ -163,9 +194,15 @@ export class RoomManager implements RoomsBridge {
     this.scheduleBrowse();
   }
 
+  /** Re-broadcast every room this user is in (their loadout changed). */
+  refreshUser(userId: string): void {
+    const room = this.roomOf(userId);
+    if (room && room.state === 'waiting') this.broadcast(room);
+  }
+
   publicList(): PublicRoomInfo[] {
     return [...this.rooms.values()]
-      .filter((r) => r.isPublic && r.state === 'waiting')
+      .filter((r) => r.isPublic && !r.ranked && r.state === 'waiting')
       .map((r) => ({
         code: r.code,
         mode: r.mode,
@@ -213,9 +250,19 @@ export class RoomManager implements RoomsBridge {
     this.io.in(userChannel(userId)).socketsLeave(roomChannel(room.id));
   }
 
+  private newMember(user: { id: string; name: string; guest: boolean }, color: number, team: number, bot = false): RoomMember {
+    return { id: user.id, name: user.name, guest: user.guest, bot, color, team, ready: bot, connected: true, graceTimer: null };
+  }
+
   // ── lifecycle ─────────────────────────────────────────────────────────────
-  create(user: Identity, p: { mode?: unknown; mapId?: unknown; difficulty?: unknown; isPublic?: unknown }): Result<{ room: RoomState }> {
+  create(
+    user: Identity,
+    p: { mode?: unknown; mapId?: unknown; difficulty?: unknown; isPublic?: unknown; endless?: unknown; equalLevels?: unknown },
+  ): Result<{ room: RoomState }> {
     if (!p || !isMode(p.mode) || !isMapId(p.mapId) || !isDifficulty(p.difficulty)) return fail('Invalid room settings');
+    const endless = p.mode === 'coop' && p.endless === true;
+    const err = this.hooks.validateSettings?.(user, { mode: p.mode, mapId: p.mapId, endless });
+    if (err) return fail(err);
     const cur = this.roomOf(user.id);
     if (cur) this.leave(user.id);
     const room: Room = {
@@ -226,6 +273,9 @@ export class RoomManager implements RoomsBridge {
       mapId: p.mapId,
       difficulty: p.difficulty,
       isPublic: p.isPublic === true,
+      equalLevels: typeof p.equalLevels === 'boolean' ? p.equalLevels : defaultEqualLevels(p.mode),
+      endless,
+      ranked: null,
       state: 'waiting',
       members: [],
       chat: [],
@@ -233,7 +283,7 @@ export class RoomManager implements RoomsBridge {
       match: null,
       lastResults: null,
     };
-    room.members.push({ id: user.id, name: user.name, guest: user.guest, color: 0, team: 0, ready: false, connected: true, graceTimer: null });
+    room.members.push(this.newMember(user, 0, 0));
     this.rooms.set(room.id, room);
     this.byCode.set(room.code, room);
     this.attachUser(user.id, room);
@@ -241,6 +291,42 @@ export class RoomManager implements RoomsBridge {
     this.broadcast(room);
     this.social.notifyPresence(user.id);
     return { ok: true, room: this.toState(room) };
+  }
+
+  /**
+   * Ranked: a private single-use room with the given humans + bots. Humans leave any
+   * room they are in (e.g. the lobby they queued from).
+   */
+  createRankedRoom(
+    ranked: RankedMode,
+    mapId: MapId,
+    seats: { user: { id: string; name: string; guest: boolean }; team: number; bot: boolean }[],
+  ): Room {
+    for (const s of seats) if (!s.bot && this.roomOf(s.user.id)) this.leave(s.user.id, 'moved');
+    const room: Room = {
+      id: crypto.randomBytes(6).toString('hex'),
+      code: this.newCode(),
+      hostId: seats.find((s) => !s.bot)!.user.id,
+      mode: ranked === 'duel' ? 'ffa' : 'teams',
+      mapId,
+      difficulty: 'normal',
+      isPublic: false,
+      equalLevels: false,
+      endless: false,
+      ranked,
+      state: 'waiting',
+      members: seats.map((s, i) => this.newMember(s.user, i, s.team, s.bot)),
+      chat: [],
+      chatSeq: 0,
+      match: null,
+      lastResults: null,
+    };
+    this.rooms.set(room.id, room);
+    this.byCode.set(room.code, room);
+    for (const s of seats) if (!s.bot) this.attachUser(s.user.id, room);
+    this.broadcast(room);
+    for (const s of seats) if (!s.bot) this.social.notifyPresence(s.user.id);
+    return room;
   }
 
   join(user: Identity, rawCode: unknown): Result<{ room: RoomState }> {
@@ -254,12 +340,13 @@ export class RoomManager implements RoomsBridge {
       this.markOnline(room, existing);
       return { ok: true, room: this.toState(room) };
     }
+    if (room.ranked) return fail("That's a ranked match — it can't be joined");
     if (room.state === 'playing') return fail('That game has already started');
     if (room.members.length >= MAX_PLAYERS) return fail('Room is full');
     const cur = this.roomOf(user.id);
     if (cur) this.leave(user.id);
     const team = room.mode === 'teams' ? this.smallerTeam(room) : 0;
-    room.members.push({ id: user.id, name: user.name, guest: user.guest, color: this.freeColor(room), team, ready: false, connected: true, graceTimer: null });
+    room.members.push(this.newMember(user, this.freeColor(room), team));
     this.attachUser(user.id, room);
     this.system(room, `${user.name} joined`);
     this.broadcast(room);
@@ -267,7 +354,7 @@ export class RoomManager implements RoomsBridge {
     return { ok: true, room: this.toState(room) };
   }
 
-  leave(userId: string, reason: 'left' | 'kicked' | 'timeout' = 'left'): Result {
+  leave(userId: string, reason: 'left' | 'kicked' | 'timeout' | 'moved' = 'left'): Result {
     const room = this.roomOf(userId);
     if (!room) return fail('Not in a room');
     const idx = room.members.findIndex((m) => m.id === userId);
@@ -275,19 +362,29 @@ export class RoomManager implements RoomsBridge {
       this.userRoom.delete(userId);
       return fail('Not in a room');
     }
+    this.hooks.onLeave?.(room, userId);
     const [m] = room.members.splice(idx, 1);
     if (m.graceTimer) clearTimeout(m.graceTimer);
     this.detachUser(userId, room);
     if (room.match && !room.match.over) room.match.markLeft(userId);
     if (reason === 'kicked') this.social.emitTo(userId, EV.roomClosed, { reason: 'You were kicked from the room' });
     else if (reason === 'timeout') this.social.emitTo(userId, EV.roomClosed, { reason: 'You were disconnected for too long' });
+    if (!this.rooms.has(room.id)) {
+      // the room may already have been closed by the match ending (ranked)
+      this.social.notifyPresence(userId);
+      return { ok: true };
+    }
 
-    if (room.members.length === 0) {
-      this.deleteRoom(room);
+    if (room.members.filter((x) => !x.bot).length === 0) {
+      // last human left a ranked match that bots would keep playing: settle it now so the
+      // forfeit (a loss) is recorded, then the room closes via onMatchEnd
+      if (room.ranked && room.match && !room.match.over) room.match.concludeNow();
+      if (this.rooms.has(room.id)) this.deleteRoom(room);
     } else {
       if (room.hostId === userId) {
-        room.hostId = room.members[0].id;
-        this.system(room, `${m.name} left — ${room.members[0].name} is now the host`);
+        const next = room.members.find((x) => !x.bot) ?? room.members[0];
+        room.hostId = next.id;
+        this.system(room, `${m.name} left — ${next.name} is now the host`);
       } else {
         this.system(room, reason === 'kicked' ? `${m.name} was kicked` : reason === 'timeout' ? `${m.name} timed out` : `${m.name} left`);
       }
@@ -302,7 +399,7 @@ export class RoomManager implements RoomsBridge {
     room.match = null;
     for (const m of room.members) {
       if (m.graceTimer) clearTimeout(m.graceTimer);
-      this.detachUser(m.id, room);
+      if (!m.bot) this.detachUser(m.id, room);
     }
     this.rooms.delete(room.id);
     this.byCode.delete(room.code);
@@ -310,30 +407,50 @@ export class RoomManager implements RoomsBridge {
     this.scheduleBrowse();
   }
 
-  settings(userId: string, patch: RoomSettingsPatch): Result {
+  /** Close a room for everyone (ranked rooms after their match). */
+  closeRoom(room: Room, reason: string, silent: boolean): void {
+    const humans = room.members.filter((m) => !m.bot).map((m) => m.id);
+    for (const id of humans) this.social.emitTo(id, EV.roomClosed, { reason, silent });
+    this.deleteRoom(room);
+    for (const id of humans) this.social.notifyPresence(id);
+  }
+
+  settings(user: Identity | string, patch: RoomSettingsPatch): Result {
+    const userId = typeof user === 'string' ? user : user.id;
     const room = this.roomOf(userId);
     if (!room) return fail('Not in a room');
     if (room.hostId !== userId) return fail('Only the host can change settings');
     if (room.state !== 'waiting') return fail('Game in progress');
+    if (room.ranked) return fail('Ranked settings are fixed');
     if (!patch || typeof patch !== 'object') return fail('Bad request');
+    const next = { mode: room.mode, mapId: room.mapId, endless: room.endless };
     if (patch.mode !== undefined) {
       if (!isMode(patch.mode)) return fail('Unknown mode');
-      if (patch.mode !== room.mode) {
-        room.mode = patch.mode;
-        if (room.mode === 'teams') room.members.forEach((m, i) => (m.team = i % 2));
-      }
+      next.mode = patch.mode;
     }
     if (patch.mapId !== undefined) {
       if (!isMapId(patch.mapId)) return fail('Unknown map');
-      room.mapId = patch.mapId;
+      next.mapId = patch.mapId;
     }
-    if (patch.difficulty !== undefined) {
-      if (!isDifficulty(patch.difficulty)) return fail('Unknown difficulty');
-      room.difficulty = patch.difficulty;
+    if (patch.endless !== undefined) next.endless = !!patch.endless;
+    if (next.mode !== 'coop') next.endless = false;
+    if (patch.difficulty !== undefined && !isDifficulty(patch.difficulty)) return fail('Unknown difficulty');
+    if (typeof user !== 'string') {
+      const err = this.hooks.validateSettings?.(user, next);
+      if (err) return fail(err);
     }
+    if (next.mode !== room.mode) {
+      room.mode = next.mode;
+      room.equalLevels = defaultEqualLevels(room.mode);
+      if (room.mode === 'teams') room.members.forEach((m, i) => (m.team = i % 2));
+    }
+    room.mapId = next.mapId;
+    room.endless = next.endless;
+    if (patch.difficulty !== undefined) room.difficulty = patch.difficulty;
     if (patch.isPublic !== undefined) room.isPublic = !!patch.isPublic;
+    if (patch.equalLevels !== undefined) room.equalLevels = !!patch.equalLevels;
     // settings changed → everyone confirms again
-    for (const m of room.members) if (m.id !== room.hostId) m.ready = false;
+    for (const m of room.members) if (m.id !== room.hostId && !m.bot) m.ready = false;
     this.broadcast(room);
     return { ok: true };
   }
@@ -397,7 +514,7 @@ export class RoomManager implements RoomsBridge {
       const t1 = n - t0;
       if (t0 === 0 || t1 === 0) return 'Both teams need at least one player';
     }
-    const notReady = room.members.filter((m) => m.id !== room.hostId && (!m.ready || !m.connected));
+    const notReady = room.members.filter((m) => m.id !== room.hostId && !m.bot && (!m.ready || !m.connected));
     if (notReady.length) return `Waiting for ${notReady.map((m) => m.name).join(', ')} to be ready`;
     return null;
   }
@@ -407,9 +524,12 @@ export class RoomManager implements RoomsBridge {
     if (!room) return fail('Not in a room');
     if (room.hostId !== userId) return fail('Only the host can start');
     if (room.state !== 'waiting') return fail('Game already running');
+    if (room.ranked) return fail('Ranked matches start automatically');
     const err = this.startError(room);
     if (err) return fail(err);
-    this.startMatch(room, makeRuleset(room.mode, room.mapId, room.difficulty, this.opts.ruleOverrides));
+    const overrides: Partial<Ruleset> = { ...this.opts.ruleOverrides };
+    if (room.endless) overrides.finalWave = null;
+    this.startMatch(room, makeRuleset(room.mode, room.mapId, room.difficulty, overrides));
     return { ok: true };
   }
 
@@ -421,6 +541,7 @@ export class RoomManager implements RoomsBridge {
       guest: m.guest,
       color: m.color,
       team: m.team,
+      bot: m.bot,
       ...(this.hooks.seatFor?.(room, m) ?? {}),
       ...(seatOverrides?.(m) ?? {}),
     }));
@@ -432,9 +553,9 @@ export class RoomManager implements RoomsBridge {
     room.lastResults = null;
     this.social.cancelRoomInvites(room.id);
     for (const m of room.members) if (!m.connected) match.setConnected(m.id, false);
-    this.system(room, 'Game started — good luck!');
+    this.system(room, room.ranked ? 'Ranked match — good luck!' : 'Game started — good luck!');
     this.broadcast(room);
-    for (const m of room.members) this.social.notifyPresence(m.id);
+    for (const m of room.members) if (!m.bot) this.social.notifyPresence(m.id);
     match.start();
     return match;
   }
@@ -442,29 +563,35 @@ export class RoomManager implements RoomsBridge {
   private onMatchEnd(room: Room, results: MatchResults, match: Match): void {
     // persist stats for account players
     for (const p of results.players) {
-      if (p.guest) continue;
+      if (p.guest || p.bot) continue;
       const u = this.db.userById(p.id);
       if (!u) continue;
       u.stats.gamesPlayed++;
       if (results.winners.includes(p.id)) u.stats.wins++;
-      if (results.mode === 'coop') {
+      if (results.mode === 'coop' && !results.endless) {
         const key = `${results.mapId}:${results.difficulty}`;
         u.stats.bestCoop[key] = Math.max(u.stats.bestCoop[key] ?? 0, results.wavesSurvived);
       }
     }
     this.db.save();
     this.hooks.afterMatch?.(room, results, match);
+    for (const p of results.players) {
+      if (!p.guest && !p.bot) this.social.emitTo(p.id, EV.hello, { user: { id: p.id, name: p.name, guest: false }, stats: this.db.userById(p.id)?.stats ?? null });
+    }
     if (!this.rooms.has(room.id)) return;
+    if (room.ranked) {
+      // ranked rooms are single-use: everyone goes back home after the results
+      room.match = null;
+      this.closeRoom(room, 'Ranked match finished', true);
+      return;
+    }
     room.match = null;
     room.state = 'waiting';
     room.lastResults = results;
-    for (const m of room.members) m.ready = false;
-    for (const p of results.players) {
-      if (!p.guest) this.social.emitTo(p.id, EV.hello, { user: { id: p.id, name: p.name, guest: false }, stats: this.db.userById(p.id)?.stats ?? null });
-    }
+    for (const m of room.members) if (!m.bot) m.ready = false;
     this.system(room, results.outcome === 'victory' ? 'Victory!' : results.outcome === 'defeat' ? 'Defeat.' : 'Game over.');
     this.broadcast(room);
-    for (const m of room.members) this.social.notifyPresence(m.id);
+    for (const m of room.members) if (!m.bot) this.social.notifyPresence(m.id);
   }
 
   // ── connection handling ───────────────────────────────────────────────────

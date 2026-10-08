@@ -1,49 +1,18 @@
-import { useStore, store } from '../store';
-import { logout, switchAccount } from '../net';
+import { useStore } from '../store';
 import { AuthScreen } from './AuthScreen';
 import { ConfirmModal, InvitePopups, JoinErrorModal, Toasts } from './components';
 import { FriendsPanel } from './FriendsPanel';
 import { GameScreen } from './GameScreen';
+import { DevPanel } from './hub/DevPanel';
+import { Home, HudBar } from './hub/Home';
+import { MatchmakingOverlay, VsSplash } from './hub/overlays';
+import { CelebrationHost, PartyInvitePopups, RevealHost, SeasonNoticeModal } from './hub/reveals';
 import { Lobby } from './Lobby';
-import { MainMenu } from './MainMenu';
 import { Results } from './Results';
 
+/** Top bar used outside the home hub (lobby, results). */
 export function TopBar() {
-  const user = useStore((s) => s.user);
-  const connected = useStore((s) => s.connected);
-  const incoming = useStore((s) => s.social.incoming.length);
-  const friendsOpen = useStore((s) => s.friendsOpen);
-  return (
-    <div className="topbar">
-      <div className="logo">
-        <div className="mark">♜</div>
-        Castle Tower Defense
-      </div>
-      <span className="spacer" />
-      <span className="conn">
-        <span className={`dot ${connected ? 'online' : ''}`} />
-        {connected ? 'Connected' : 'Connecting…'}
-      </span>
-      {user && !user.guest && (
-        <button className={`btn btn-sm ${friendsOpen ? 'active' : ''}`} onClick={() => store.set({ friendsOpen: !friendsOpen })}>
-          👥 Friends
-          {incoming > 0 && <span className="badge gold">{incoming}</span>}
-        </button>
-      )}
-      {user && (
-        <div className="row">
-          <span style={{ fontWeight: 700 }}>{user.name}</span>
-          {user.guest && <span className="tag-guest">guest</span>}
-          <button className="btn btn-sm btn-ghost" title="Use a different account in this tab (other tabs stay logged in)" onClick={switchAccount}>
-            Switch account
-          </button>
-          <button className="btn btn-sm" onClick={() => void logout()}>
-            Log out
-          </button>
-        </div>
-      )}
-    </div>
-  );
+  return <HudBar />;
 }
 
 export function App() {
@@ -63,7 +32,7 @@ export function App() {
       screen = <AuthScreen />;
       break;
     case 'menu':
-      screen = <MainMenu />;
+      screen = <Home />;
       break;
     case 'lobby':
       screen = <Lobby />;
@@ -82,6 +51,17 @@ export function App() {
         <div className="panel drawer">
           <FriendsPanel showClose />
         </div>
+      )}
+      {user && view !== 'auth' && (
+        <>
+          <MatchmakingOverlay />
+          <VsSplash />
+          <RevealHost />
+          <CelebrationHost />
+          <SeasonNoticeModal />
+          <PartyInvitePopups />
+          <DevPanel />
+        </>
       )}
       <InvitePopups />
       <ConfirmModal />

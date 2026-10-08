@@ -144,6 +144,24 @@ export interface TowerLevel {
   pulse?: boolean;
   /** gold mine: paid to owner at each wave start */
   income?: number;
+  /** flamethrower: cone half-angle in degrees */
+  cone?: number;
+  /** burn damage over time (ignores armor; refreshes, does not stack) */
+  burnDps?: number;
+  burnTime?: number;
+  /** mortar: cannot hit enemies closer than this */
+  minRange?: number;
+  /** venom: poison damage per stack per second (ignores armor) */
+  poisonDps?: number;
+  poisonMaxStacks?: number;
+  poisonTime?: number;
+  /** prism: damage multiplier gained per second on the same target, and its cap */
+  rampPerSec?: number;
+  rampMax?: number;
+  /** war totem: buff radius and buff amounts for nearby towers */
+  buffRadius?: number;
+  buffDmg?: number;
+  buffRate?: number;
 }
 
 export interface TowerDef {
@@ -159,6 +177,12 @@ export interface TowerDef {
   chainFalloff?: number;
   /** tesla: max distance between consecutive chain targets */
   chainRange?: number;
+  /** shells home on their target (cannon) or fly to where it was (mortar) */
+  homing?: boolean;
+  /** continuous beam (prism) */
+  beam?: boolean;
+  /** support tower that buffs neighbours (war totem) */
+  support?: boolean;
   levels: [TowerLevel, TowerLevel, TowerLevel];
 }
 
@@ -182,6 +206,7 @@ export const TOWERS: Record<TowerType, TowerDef> = {
     hotkey: '2',
     attacks: true,
     projectileSpeed: 7,
+    homing: true,
     levels: [
       { cost: 200, damage: 30, rate: 0.7, range: 2.8, splash: 1.0 },
       { cost: 180, damage: 45, rate: 0.8, range: 2.9, splash: 1.2 },
@@ -239,6 +264,70 @@ export const TOWERS: Record<TowerType, TowerDef> = {
       { cost: 400, damage: 0, rate: 0, range: 0, income: 110 },
     ],
   },
+  flame: {
+    type: 'flame',
+    name: 'Flamethrower',
+    blurb: 'Short-range cone that sets enemies ablaze. Melts swarms.',
+    hotkey: '',
+    attacks: true,
+    levels: [
+      { cost: 200, damage: 3, rate: 5, range: 2.0, cone: 35, burnDps: 6, burnTime: 2 },
+      { cost: 170, damage: 5, rate: 5, range: 2.2, cone: 35, burnDps: 10, burnTime: 2 },
+      { cost: 330, damage: 8, rate: 6, range: 2.4, cone: 40, burnDps: 16, burnTime: 2.5 },
+    ],
+  },
+  mortar: {
+    type: 'mortar',
+    name: 'Mortar',
+    blurb: 'Huge range and splash, but slow and cannot hit up close.',
+    hotkey: '',
+    attacks: true,
+    projectileSpeed: 6,
+    homing: false,
+    levels: [
+      { cost: 275, damage: 60, rate: 0.35, range: 8, minRange: 2, splash: 1.6 },
+      { cost: 250, damage: 100, rate: 0.4, range: 8, minRange: 2, splash: 1.8 },
+      { cost: 450, damage: 170, rate: 0.45, range: 9, minRange: 2, splash: 2.0 },
+    ],
+  },
+  venom: {
+    type: 'venom',
+    name: 'Venom',
+    blurb: 'Stacking poison that ignores armor.',
+    hotkey: '',
+    attacks: true,
+    levels: [
+      { cost: 250, damage: 3, rate: 1.5, range: 3.0, poisonDps: 5, poisonMaxStacks: 4, poisonTime: 3 },
+      { cost: 220, damage: 4, rate: 1.7, range: 3.0, poisonDps: 7, poisonMaxStacks: 5, poisonTime: 3 },
+      { cost: 420, damage: 6, rate: 2.0, range: 3.3, poisonDps: 10, poisonMaxStacks: 6, poisonTime: 3.5 },
+    ],
+  },
+  prism: {
+    type: 'prism',
+    name: 'Prism',
+    blurb: 'A beam that ramps up the longer it holds one target. Ignores armor. Boss killer.',
+    hotkey: '',
+    attacks: true,
+    beam: true,
+    levels: [
+      { cost: 400, damage: 18, rate: 1, range: 3.2, rampPerSec: 0.5, rampMax: 4 },
+      { cost: 350, damage: 28, rate: 1, range: 3.2, rampPerSec: 0.6, rampMax: 5 },
+      { cost: 600, damage: 42, rate: 1, range: 3.5, rampPerSec: 0.7, rampMax: 6 },
+    ],
+  },
+  totem: {
+    type: 'totem',
+    name: 'War Totem',
+    blurb: 'Buffs nearby towers: more damage and fire rate. Buffs from several totems do not stack.',
+    hotkey: '',
+    attacks: false,
+    support: true,
+    levels: [
+      { cost: 225, damage: 0, rate: 0, range: 2, buffRadius: 2, buffDmg: 0.15, buffRate: 0.1 },
+      { cost: 200, damage: 0, rate: 0, range: 2.5, buffRadius: 2.5, buffDmg: 0.2, buffRate: 0.12 },
+      { cost: 350, damage: 0, rate: 0, range: 3, buffRadius: 3, buffDmg: 0.25, buffRate: 0.15 },
+    ],
+  },
 };
 
 export const TARGET_MODE_LABEL: Record<TargetMode, string> = {
@@ -276,6 +365,14 @@ export interface EnemyDef {
   /** healer: fraction of target max HP healed per second */
   healPerSec?: number;
   boss?: boolean;
+  /** splitter: spawns this many of `splitInto` on death */
+  splitInto?: EnemyType;
+  splitCount?: number;
+  /** shieldbearer: once, shields enemies within shieldRadius for shieldPct of their max HP */
+  shieldPct?: number;
+  shieldRadius?: number;
+  /** path distance travelled before the shield pulse fires */
+  shieldTriggerDist?: number;
 }
 
 export const ARMOR_MIN_FRACTION = 0.2;
@@ -310,6 +407,21 @@ export const ENEMIES: Record<EnemyType, EnemyDef> = {
     slowResist: 0.5,
     boss: true,
   },
+  splitter: { type: 'splitter', name: 'Splitter', hp: 150, speed: 0.9, armor: 2, bounty: 8, lives: 2, radius: 0.3, splitInto: 'splitling', splitCount: 3 },
+  splitling: { type: 'splitling', name: 'Splitling', hp: 22, speed: 1.7, armor: 0, bounty: 1, lives: 1, radius: 0.15 },
+  shield: {
+    type: 'shield',
+    name: 'Shieldbearer',
+    hp: 170,
+    speed: 0.8,
+    armor: 3,
+    bounty: 12,
+    lives: 2,
+    radius: 0.3,
+    shieldPct: 0.3,
+    shieldRadius: 1.6,
+    shieldTriggerDist: 2,
+  },
 };
 
 /** Per-wave HP growth.  Accelerates after `lateWave` so long versus games end. */
@@ -335,11 +447,11 @@ export const WAVES = {
   budgetLinear: 2.2,
   budgetQuad: 0.04,
   /** point cost of one unit of each type */
-  points: { grunt: 1, runner: 1, swarm: 0.35, knight: 3.5, brute: 5, healer: 3, warlord: 0 } as Record<EnemyType, number>,
-  /** first wave each type can appear in AI waves */
-  unlock: { grunt: 1, runner: 3, swarm: 5, brute: 7, knight: 12, healer: 15, warlord: 10 } as Record<EnemyType, number>,
+  points: { grunt: 1, runner: 1, swarm: 0.35, knight: 3.5, brute: 5, healer: 3, warlord: 0, splitter: 3, splitling: 0.3, shield: 4 } as Record<EnemyType, number>,
+  /** first wave each type can appear in AI waves (splitters / shieldbearers are troop cards only) */
+  unlock: { grunt: 1, runner: 3, swarm: 5, brute: 7, knight: 12, healer: 15, warlord: 10, splitter: 9999, splitling: 9999, shield: 9999 } as Record<EnemyType, number>,
   /** seconds between units in a group (divided by defenderScale) */
-  spacing: { grunt: 0.9, runner: 0.7, swarm: 0.22, knight: 1.2, brute: 1.6, healer: 1.4, warlord: 5 } as Record<EnemyType, number>,
+  spacing: { grunt: 0.9, runner: 0.7, swarm: 0.22, knight: 1.2, brute: 1.6, healer: 1.4, warlord: 5, splitter: 1.2, splitling: 0.3, shield: 1.3 } as Record<EnemyType, number>,
   bossEvery: 10,
 };
 
@@ -373,6 +485,19 @@ export const SEND_PACKS: Record<PackId, SendPackDef> = {
     cooldown: 8,
   },
   warlord: { id: 'warlord', name: '1 Warlord', units: [{ type: 'warlord', count: 1 }], cost: 1000, income: 120, unlockWave: 18, cooldown: 20 },
+  splitters: { id: 'splitters', name: '3 Splitters', units: [{ type: 'splitter', count: 3 }], cost: 220, income: 24, unlockWave: 8, cooldown: 6 },
+  shields: {
+    id: 'shields',
+    name: '2 Shieldbearers + 5 Grunts',
+    units: [
+      { type: 'shield', count: 2 },
+      { type: 'grunt', count: 5 },
+    ],
+    cost: 280,
+    income: 31,
+    unlockWave: 11,
+    cooldown: 8,
+  },
 };
 
 // ── Maps: co-op final waves ──────────────────────────────────────────────────

@@ -16,6 +16,11 @@ export interface MatchSeat {
   loadout?: TowerType[];
   troops?: PackId[];
   towerMult?: Partial<Record<TowerType, number>>;
+  cardLevels?: Partial<Record<TowerType, number>>;
+  bot?: boolean;
+  icon?: string;
+  level?: number;
+  emotes?: string[];
 }
 
 export interface MatchHooks {
@@ -51,7 +56,10 @@ export class Match {
       loadout: s.loadout,
       troops: s.troops,
       towerMult: s.towerMult,
+      cardLevels: s.cardLevels,
+      bot: s.bot,
     }));
+    const seatById = new Map(seats.map((s) => [s.id, s]));
     this.sim = new GameSim(rules, inits);
     const players: MatchPlayerInfo[] = this.sim.order.map((id) => {
       const p = this.sim.players.get(id)!;
@@ -64,6 +72,10 @@ export class Match {
         boardId: p.boardId,
         loadout: p.loadout.slice(),
         troops: p.troops.slice(),
+        bot: p.bot,
+        icon: seatById.get(id)?.icon ?? 'shield',
+        level: seatById.get(id)?.level ?? 1,
+        emotes: seatById.get(id)?.emotes ?? [],
       };
     });
     this.info = {
@@ -73,6 +85,8 @@ export class Match {
       difficulty: rules.difficulty,
       finalWave: rules.finalWave,
       ranked: rules.ranked,
+      endless: rules.mode === 'coop' && rules.finalWave === null,
+      vsBot: players.some((p) => p.bot),
       players,
       boards: this.sim.boards.map((b) => ({ id: b.id, defenders: b.defenders.slice(), maxLives: b.maxLives })),
     };
@@ -116,9 +130,17 @@ export class Match {
     this.schedule();
   }
 
+  /** called after every sim step (ranked bots act here) */
+  readonly onStep: (() => void)[] = [];
+
+  private stepOnce(): void {
+    this.sim.step();
+    for (const f of this.onStep) f();
+  }
+
   private tick(): void {
     const steps = this.sim.speed;
-    for (let s = 0; s < steps && this.sim.phase !== 'over'; s++) this.sim.step();
+    for (let s = 0; s < steps && this.sim.phase !== 'over'; s++) this.stepOnce();
     this.broadcast();
     if (this.sim.phase === 'over') this.end();
   }
@@ -139,7 +161,7 @@ export class Match {
   /** Test hook: simulate `seconds` instantly (snapshots resume on the next tick). */
   fastForward(seconds: number): void {
     const steps = Math.round(seconds * TICK_RATE);
-    for (let i = 0; i < steps && this.sim.phase !== 'over'; i++) this.sim.step();
+    for (let i = 0; i < steps && this.sim.phase !== 'over'; i++) this.stepOnce();
     for (const b of this.sim.boards) b.fx = [];
     this.broadcast();
     if (this.sim.phase === 'over') this.end();
@@ -203,6 +225,9 @@ export class Match {
       mapId: this.rules.mapId,
       difficulty: this.rules.difficulty,
       outcome,
+      ranked: this.rules.ranked,
+      endless: this.info.endless,
+      vsBot: this.info.vsBot,
       winners: r?.winners ?? [],
       wave: this.sim.wave,
       wavesSurvived: r?.wavesSurvived ?? Math.max(0, this.sim.wave - 1),
@@ -217,6 +242,8 @@ export class Match {
             earned: Math.round(sp.stats.earned),
             sent: sp.stats.sent,
             built: sp.stats.built,
+            builtBy: { ...sp.stats.builtBy },
+            damageBy: Object.fromEntries(Object.entries(sp.stats.damageBy).map(([k, v]) => [k, Math.round(v ?? 0)])),
           },
           eliminatedWave: sp.eliminatedWave,
         };
@@ -232,6 +259,14 @@ export class Match {
     const results = this.results();
     this.io.to(this.channel).emit(EV.matchOver, results);
     this.hooks.onEnd(results, this);
+  }
+
+  /** Conclude immediately with whatever state the sim is in (results + hooks still run). */
+  concludeNow(): void {
+    if (this.ended) return;
+    this.sim.forceFinish();
+    this.broadcast();
+    this.end();
   }
 
   /** Stop without results (room deleted). */

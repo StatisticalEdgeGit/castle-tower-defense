@@ -47,8 +47,10 @@ import {
   waveBonus,
   type Escalation,
 } from './economy';
-import { applyHealers, createEnemy, moveEnemies } from './enemies';
-import { updateShells, updateTowers, type SimContext } from './towers';
+import { applyDots, applyHealers, applyShieldbearers, createEnemy, createSplitChildren, moveEnemies } from './enemies';
+import { applyTotemBuffs, beamRamp, updateShells, updateTowers, type SimContext } from './towers';
+import { levelStatMult, MAX_CARD_LEVEL } from '../../shared/progression';
+import { ENEMY_FLAG } from '../../shared/types';
 
 export type Result<T extends object = object> = ({ ok: true } & T) | { ok: false; error: string };
 const fail = (error: string): { ok: false; error: string } => ({ ok: false, error });
@@ -104,8 +106,12 @@ export interface SimPlayerInit {
   loadout?: TowerType[];
   /** packs this player may send (default: all) */
   troops?: PackId[];
-  /** per-tower stat multiplier (card levels hook). Default 1. */
+  /** per-tower stat multiplier override (tests / tools). Default: from cardLevels. */
   towerMult?: Partial<Record<TowerType, number>>;
+  /** card level (1–10) per tower: +5% damage per level (mine: income, totem: +1% buff). */
+  cardLevels?: Partial<Record<TowerType, number>>;
+  /** a bot seat (excluded from leaderboards/rewards by the server) */
+  bot?: boolean;
 }
 
 export interface SimPlayer {
@@ -125,6 +131,8 @@ export interface SimPlayer {
   loadout: TowerType[];
   troops: PackId[];
   towerMult: Record<TowerType, number>;
+  cardLevels: Record<TowerType, number>;
+  bot: boolean;
   /** sim time at which each pack is available again */
   cooldowns: Record<PackId, number>;
   stats: PlayerMatchStats;
@@ -179,7 +187,13 @@ export class GameSim implements SimContext {
     for (const init of sorted) {
       const boardId = this.boards.findIndex((b) => b.defenders.includes(init.id));
       const k = this.boards[boardId].defenders.length;
-      const towerMult = Object.fromEntries(TOWER_TYPES.map((t) => [t, init.towerMult?.[t] ?? 1])) as Record<TowerType, number>;
+      const cardLevels = Object.fromEntries(
+        TOWER_TYPES.map((t) => [t, Math.max(1, Math.min(MAX_CARD_LEVEL, Math.round(init.cardLevels?.[t] ?? 1)))]),
+      ) as Record<TowerType, number>;
+      // totem levels boost its buff instead of a damage multiplier (see towers.ts)
+      const towerMult = Object.fromEntries(
+        TOWER_TYPES.map((t) => [t, init.towerMult?.[t] ?? (t === 'totem' ? 1 : levelStatMult(cardLevels[t]))]),
+      ) as Record<TowerType, number>;
       this.players.set(init.id, {
         id: init.id,
         name: init.name,
@@ -197,8 +211,10 @@ export class GameSim implements SimContext {
         loadout: (init.loadout ?? [...TOWER_TYPES]).slice(0, 6),
         troops: (init.troops ?? [...PACK_IDS]).slice(),
         towerMult,
+        cardLevels,
+        bot: !!init.bot,
         cooldowns: Object.fromEntries(PACK_IDS.map((p) => [p, 0])) as Record<PackId, number>,
-        stats: { kills: 0, damage: 0, earned: 0, sent: 0, built: 0 },
+        stats: { kills: 0, damage: 0, earned: 0, sent: 0, built: 0, builtBy: {}, damageBy: {} },
         eliminatedWave: null,
       });
     }
@@ -214,10 +230,17 @@ export class GameSim implements SimContext {
     if (tower) {
       tower.damage += dealt;
       const owner = this.players.get(tower.owner);
-      if (owner) owner.stats.damage += dealt;
+      if (owner) {
+        owner.stats.damage += dealt;
+        owner.stats.damageBy[tower.type] = (owner.stats.damageBy[tower.type] ?? 0) + dealt;
+      }
     }
     if (e.alive && e.hp <= 0) {
       e.alive = false;
+      if (e.def.splitInto) {
+        for (const c of createSplitChildren(() => this.nextId(), e)) board.enemies.push(c);
+        board.fx.push({ k: 'pulse', x: round2(e.x), y: round2(e.y), r: 0.6 });
+      }
       if (tower) {
         tower.kills++;
         const owner = this.players.get(tower.owner);
@@ -324,6 +347,9 @@ export class GameSim implements SimContext {
       b.lives = Math.max(0, b.lives - e.lives);
       b.fx.push({ k: 'leak', x: round2(e.x), y: round2(e.y), n: e.lives });
     });
+    for (const p of applyShieldbearers(b)) b.fx.push({ k: 'shieldup', x: round2(p.x), y: round2(p.y), r: p.r });
+    applyDots(b, dt, (tower, e, dealt) => this.onHit(b, tower, e, dealt));
+    applyTotemBuffs(b);
     updateTowers(this, b, dt);
     updateShells(this, b, dt);
     if (b.enemies.some((e) => !e.alive)) b.enemies = b.enemies.filter((e) => e.alive);
@@ -427,6 +453,12 @@ export class GameSim implements SimContext {
     this.result = { outcome, winners, wave: this.wave, wavesSurvived: Math.max(0, wavesSurvived), time: this.time };
   }
 
+  /** End the match right now (e.g. every human forfeited a ranked game). */
+  forceFinish(): void {
+    if (this.phase === 'over') return;
+    this.finish(this.versus ? 'versus' : 'defeat', [], Math.max(0, this.wave - 1));
+  }
+
   // ── connection state ──────────────────────────────────────────────────────
   setConnected(pid: string, connected: boolean): void {
     const p = this.players.get(pid);
@@ -491,6 +523,11 @@ export class GameSim implements SimContext {
       angle: -Math.PI / 2,
       targetId: -1,
       mult: p.towerMult[type] ?? 1,
+      cardLevel: p.cardLevels[type] ?? 1,
+      buffDmg: 0,
+      buffRate: 0,
+      beamTarget: -1,
+      beamTime: 0,
       kills: 0,
       damage: 0,
     };
@@ -499,6 +536,7 @@ export class GameSim implements SimContext {
     this.towerById.set(t.id, t);
     board.towersVersion++;
     p.stats.built++;
+    p.stats.builtBy[type] = (p.stats.builtBy[type] ?? 0) + 1;
     board.fx.push({ k: 'build', x: t.x, y: t.y });
     return { ok: true, towerId: t.id };
   }
@@ -673,10 +711,26 @@ export class GameSim implements SimContext {
     const boards: BoardSnap[] = this.boards.map((b) => {
       const enemies: EnemyTuple[] = b.enemies
         .filter((e) => e.alive)
-        .map((e) => [e.id, e.typeIdx, round2(e.x), round2(e.y), Math.max(0, Math.round((e.hp / e.maxHp) * 100) / 100), e.slowTime > 0 ? 1 : 0]);
-      const shells: ShellTuple[] = b.shells.map((s) => [s.id, round2(s.x), round2(s.y)]);
+        .map((e) => [
+          e.id,
+          e.typeIdx,
+          round2(e.x),
+          round2(e.y),
+          Math.max(0, Math.round((e.hp / e.maxHp) * 100) / 100),
+          (e.slowTime > 0 ? ENEMY_FLAG.slowed : 0) |
+            (e.shield > 0 ? ENEMY_FLAG.shielded : 0) |
+            (e.burnTime > 0 ? ENEMY_FLAG.burning : 0) |
+            (e.poisonTime > 0 && e.poisonStacks > 0 ? ENEMY_FLAG.poisoned : 0),
+        ]);
+      const shells: ShellTuple[] = b.shells.map((s) => [s.id, round2(s.x), round2(s.y), s.kind]);
       const aim: number[] = [];
-      for (const t of b.towers) if (t.targetId >= 0) aim.push(t.id, Math.round(t.angle * 100));
+      const beams: number[] = [];
+      for (const t of b.towers) {
+        if (t.targetId >= 0) aim.push(t.id, Math.round(t.angle * 100));
+        if (t.beamTarget >= 0 && TOWERS[t.type].beam) {
+          beams.push(t.id, t.beamTarget, Math.round(beamRamp(TOWERS[t.type].levels[t.level - 1], t.beamTime) * 100));
+        }
+      }
       const snap: BoardSnap = {
         id: b.id,
         lives: b.lives,
@@ -685,6 +739,8 @@ export class GameSim implements SimContext {
         towersVersion: b.towersVersion,
         shells,
         aim,
+        beams,
+        buffed: b.towers.filter((t) => t.buffDmg > 0).map((t) => t.id),
         fx: drainFx ? b.fx : b.fx.slice(),
       };
       if (!knownVersions || knownVersions[b.id] !== b.towersVersion) snap.towers = this.towerSnaps(b);

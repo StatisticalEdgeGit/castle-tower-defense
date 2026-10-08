@@ -38,7 +38,7 @@ export function EnemyIcon({ type, size = 22 }: { type: EnemyType; size?: number 
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, size, size);
     const scale = type === 'warlord' ? size * 0.95 : type === 'swarm' ? size * 2.2 : size * 1.5;
-    drawEnemy(ctx, type, size / 2, size / 2 + (type === 'warlord' ? size * 0.1 : 0), scale, 0, 1, false, 0, false);
+    drawEnemy(ctx, type, size / 2, size / 2 + (type === 'warlord' ? size * 0.1 : 0), scale, 0, 1, 0, 0, false);
   }, [type, size]);
   return <canvas ref={ref} style={{ width: size, height: size, display: 'block' }} />;
 }

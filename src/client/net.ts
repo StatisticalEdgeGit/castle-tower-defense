@@ -100,7 +100,8 @@ export const api = {
   guest: (name: string) => call<AuthResponse>('POST', '/api/guest', { name }),
   logout: (token: string) => call<{ ok: boolean }>('POST', '/api/logout', {}, token),
   me: (token: string) => call<{ ok: true; user: PublicUser; stats: PlayerStats | null } | { ok: false; error: string }>('GET', '/api/me', undefined, token),
-  serverInfo: () => call<{ ok: boolean; port: number; lan: string[]; urls: string[] }>('GET', '/api/server-info'),
+  serverInfo: () => call<{ ok: boolean; port: number; lan: string[]; urls: string[]; devTools?: boolean }>('GET', '/api/server-info'),
+  dev: (path: string, body: object = {}) => call<{ ok: boolean; error?: string }>('POST', `/api/dev/${path}`, body, store.get().token),
 };
 
 // ── socket ────────────────────────────────────────────────────────────────
@@ -154,13 +155,21 @@ function wire(s: GameSocket): void {
   s.on(EV.roomState, (room) => {
     const st = store.get();
     let view = st.view;
-    if (view === 'menu' || view === 'boot') view = room.state === 'playing' ? view : 'lobby';
+    // ranked rooms skip the lobby: the VS splash covers the wait until match:start
+    if ((view === 'menu' || view === 'boot') && !room.ranked) view = room.state === 'playing' ? view : 'lobby';
+    if (view === 'lobby' && room.ranked) view = 'menu'; // queued from a lobby: the hub sits behind the VS splash
     if (view === 'game' && room.state === 'waiting' && !st.results) view = 'lobby';
     store.set({ room, chat: room.chat, view });
   });
-  s.on(EV.roomClosed, ({ reason }) => {
+  s.on(EV.roomClosed, ({ reason, silent }) => {
+    const v = store.get().view;
+    if (silent) {
+      // ranked rooms close after the match: stay on the results screen
+      store.set({ room: null, chat: [], view: v === 'results' ? 'results' : v === 'game' ? 'results' : 'menu' });
+      return;
+    }
     game.clear();
-    store.set({ room: null, match: null, chat: [], view: store.get().view === 'auth' ? 'auth' : 'menu' });
+    store.set({ room: null, match: null, chat: [], view: v === 'auth' ? 'auth' : 'menu' });
     toast('warn', reason);
   });
   s.on(EV.browseList, (rooms) => store.set({ publicRooms: rooms }));
@@ -173,13 +182,28 @@ function wire(s: GameSocket): void {
   s.on(EV.matchStart, (info) => {
     const me = store.get().user;
     game.reset(info, me?.id ?? '');
-    store.set({ match: info, view: 'game', results: null });
+    store.set({ match: info, view: 'game', results: null, rewards: null });
+    // let the VS splash finish its animation before revealing the board
+    if (store.get().vs) window.setTimeout(() => store.set({ vs: null }), 900);
   });
   s.on(EV.matchSnap, (snap) => game.onSnapshot(snap));
   s.on(EV.matchOver, (results) => {
     store.set({ results, view: 'results' });
   });
   s.on(EV.chatMsg, (m) => store.set((st) => ({ chat: [...st.chat.slice(-99), m] })));
+  s.on(EV.progState, (profile) => {
+    const prev = store.get().profile;
+    store.set({ profile });
+    if (prev && profile.arenaReached > prev.arenaReached && store.get().view !== 'game' && store.get().view !== 'results') {
+      store.set((st) => ({ celebrations: [...st.celebrations, { kind: 'arena', arena: profile.arenaReached }] }));
+    }
+  });
+  s.on(EV.progMatchRewards, (rewards) => store.set({ rewards }));
+  s.on(EV.mmStatus, (mm) => store.set({ mm }));
+  s.on(EV.mmFound, (vs) => store.set({ vs, mm: { state: 'found', mode: vs.mode, since: Date.now(), party: [] } }));
+  s.on(EV.partyState, (party) => store.set({ party }));
+  s.on(EV.partyInvited, (inv) => store.set((st) => ({ partyInvites: [...st.partyInvites.filter((i) => i.partyId !== inv.partyId), inv] })));
+  s.on(EV.matchEmote, (e) => game.addEmote(e.playerId, e.emoteId));
 }
 
 export function connectSocket(token: string): void {
@@ -209,7 +233,7 @@ export async function boot(): Promise<void> {
   const pendingJoin = parseJoinPath();
   store.set({ pendingJoin });
   void api.serverInfo().then((r) => {
-    if (r.ok) store.set({ serverInfo: { port: r.port, lan: r.lan, urls: r.urls } });
+    if (r.ok) store.set({ serverInfo: { port: r.port, lan: r.lan, urls: r.urls, devTools: !!r.devTools } });
   });
   const saved = session.load();
   if (saved) {

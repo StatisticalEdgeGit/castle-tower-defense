@@ -7,7 +7,12 @@ LAN. Nothing is deployed anywhere.
 
 - Server-authoritative simulation (20 ticks/s) — clients only send intents and render.
 - Accounts, guests, friends with live presence, in-app invites, invite links, public game browser.
-- 4 maps ("levels"), 6 towers × 3 levels, 7 enemy types incl. a boss, 3 difficulties.
+- 4 maps ("levels"), 11 towers × 3 levels, 10 enemy types incl. a boss, 3 difficulties.
+- A Supercell-style meta game: two ranked trophy ladders (Duel 1v1 and Team 2v2) with
+  matchmaking + bot backfill, 7 arenas, a Trophy Road, card collection & levels, loadouts,
+  reward drops, chests, player levels, daily/weekly quests, a season pass, a daily shop,
+  emotes, co-op campaign stars, Endless co-op and leaderboards. **No real-money purchases
+  exist anywhere — gems are earned in-game only.**
 
 ## Quick start
 
@@ -25,16 +30,17 @@ Other scripts:
 
 | Command | What it does |
 | --- | --- |
-| `npm run play` | `build` + `start` — the one-command way to test |
-| `npm run dev` | server with `tsx watch` on 4777 **and** Vite dev server on **5180** (hot reload). Open http://localhost:5180 |
+| `npm run play` | `build` + `start` with `DEV_TOOLS=1` — the one-command way to test |
+| `npm run dev` | server with `tsx watch` on 4777 (`DEV_TOOLS=1`) **and** Vite dev server on **5180** (hot reload). Open http://localhost:5180 |
 | `npm run build` | build the client to `dist/client` |
-| `npm start` | start the server (serves `dist/client` if it exists) |
+| `npm start` | start the server (serves `dist/client` if it exists); dev tools **off** unless `DEV_TOOLS=1` |
 | `npm test` | unit + integration + balance tests (vitest) |
 | `npm run typecheck` | `tsc --noEmit` |
-| `npm run balance` | print the co-op balance table (`-- --all-maps` for every map) |
+| `npm run balance` | co-op balance tables + ranked bot-vs-bot win rates (`-- --all-maps`, `-- --games 200`, `-- --skip-coop`, `-- --skip-ranked`) |
 
-Data (accounts, sessions, friends, stats) is stored in `data/db.json` (gitignored, written
-atomically). Delete it to start fresh. `PORT` and `DB_PATH` env vars override the defaults.
+Data (accounts, sessions, friends, stats, progression) is stored in `data/db.json`
+(gitignored, written atomically). Delete it to start fresh. `PORT` and `DB_PATH` env vars
+override the defaults.
 
 ## Testing multiplayer on one PC
 
@@ -177,24 +183,135 @@ nearby enemies), and the Warlord boss every 10th wave.
 | Right click / `Esc` | cancel build or selection |
 | `U` / `S` | upgrade / sell the selected tower (expensive sells ask to confirm) |
 | `Space` | co-op: Ready / call the next wave |
+| `E` | emote wheel (3 s cooldown; everyone in the match sees it) |
 | `Enter` | open chat |
+| `` ` `` (backtick) | toggle the Dev panel (only when the server runs with `DEV_TOOLS=1`) |
 | Click an opponent mini-board | versus: make it your send target (when eliminated: spectate it) |
+
+## Progression & competitive layer
+
+After logging in you land on the **home hub**: top bar (icon, level + XP bar, coins, gems,
+Duel/2v2 trophies) and a bottom nav — **Shop · Collection · Battle · Social · Progress** —
+with red badges wherever something is claimable or upgradable. Guests can still play friendly
+lobbies; everything below needs an account. All numbers live in
+[`src/shared/progression.ts`](src/shared/progression.ts); all rules run on the server
+(`src/server/progression/`), the client only asks.
+
+### Ranked, trophies, arenas
+- **Ranked Duel (1v1)** uses the FFA versus rules with 2 players; **Ranked 2v2** uses the team
+  rules. Ranked ruleset: first wave at 15 s, waves every 20 s, Normal difficulty, and from
+  wave 19 on every wave gets ×1.15 HP ("sudden death") — matches run ~6–9 minutes.
+  The map is random from those unlocked in the lower player's arena. Ranked uses your real
+  card levels.
+- Two ladders (`duel`, `team`) with highest-ever values. Win = `clamp(30 + (opp − me)/25, 20, 40)`,
+  loss = −`clamp(26 + (me − opp)/25, 15, 35)`, losses halved under 300 trophies. In 2v2 `opp`
+  is the opposing team's average. You can never drop below the gate of an arena you've reached.
+- **Arenas** (by the higher ladder, permanent once reached): Meadow Outpost 0, Canyon Fort 300,
+  Frost Keep 700, Thunder Peak 1200, Shadow Citadel 1800, Dragon Spire 2600, Legendary Arena
+  3500. Each adds towers/troops to the drop pool and maps to the ranked rotation.
+- **Matchmaking**: in-memory queue per ladder, closest trophies within ±100, widening +50 every
+  3 s. 2v2: queue solo (random teammate), as a party (invite a friend from the Battle tab or
+  the 🤝 button in the friends list), or press **"Queue ranked 2v2 together"** in a 2-player
+  lobby. Disconnecting/forfeiting a ranked match is a loss (reconnecting within 60 s is fine).
+- **Bot backfill**: if no human fits within **12 s**, empty seats — opponents *and* 2v2
+  teammates — are filled with bots (plausible names, trophies within ±60 of yours, card levels
+  and loadouts appropriate to their arena). Bots build, upgrade, set targeting and send troops
+  with an eco-vs-defence heuristic; their reaction delay, tile choice and card level scale with
+  trophies. Bot matches award trophies normally (`botMatchesAwardTrophies: true`) and the
+  results screen shows a "vs bot" tag. Bots never appear on leaderboards. This is how you can
+  test ranked alone: just press BATTLE and wait 12 s.
+- **Trophy Road** (Progress tab): ~40 nodes up to 4000, progressed by best Duel + best 2v2
+  trophies — coins, gems, chests, guaranteed tower and troop unlocks, icons, emotes, and big
+  arena milestones.
+
+### Cards, levels, loadouts
+- 11 towers. New: **Flamethrower** (cone + burn, melts swarms), **Mortar** (range 8, min range 2,
+  huge splash, lobbed shells that lead the target), **Venom** (stacking armour-piercing poison),
+  **Prism** (beam that ramps up to ×4–6 on one target), **War Totem** (+15% damage / +10% fire
+  rate to towers within 2 tiles; several totems don't stack).
+- Rarities: Common (Archer, Cannon, Frost), Rare (Sniper, Gold Mine, Flamethrower), Epic (Tesla,
+  Mortar, Venom), Legendary (Prism, War Totem). Starter set: Archer, Cannon, Frost, Sniper.
+- Card levels 1–10 (copies + coins, Clash-Royale curve; rarer cards need fewer copies). Each
+  level = +5% damage (Gold Mine +5% income, War Totem +1% to both buffs); upgrading gives XP.
+- **Loadout** (Collection tab): up to 6 towers (hotkeys 1–6 follow the order) + an army of up to
+  5 troop packs; click a card then a slot, or drag & drop. Only unlocked cards are allowed.
+- Troop cards only unlock (no levels): starters Grunt, Runner, Swarmling, Brute; unlockables
+  Knight, Healer, Warlord, **Splitter** (splits into 3 fast splitlings on death) and
+  **Shieldbearer** (once grants nearby enemies a 30%-max-HP shield).
+- Friendly lobbies have an **Equal levels** host toggle (default ON for versus, OFF for co-op):
+  everyone's towers count as level 5 (you still need a tower unlocked to bring it). In co-op each
+  player brings their own loadout; the lobby shows everyone's towers.
+
+### Rewards loop
+- **Reward drops** (Starr-Drop style): every ranked/versus win and every co-op victory grants a
+  drop (max 8 per day, counter on the Battle tab). Tap it — each tap may climb Common → Rare →
+  Epic → Mythic → Legendary — then it reveals coins, arena-pool card copies, gems, a chance at a
+  NEW tower/troop, or a cosmetic. Seeded server-side RNG.
+- **Chests** (Silver, Gold, Magic, Legendary) from Trophy Road, level-ups and the pass: open
+  instantly with a card-by-card flip, copy count-ups, NEW bursts and progress to the next level.
+- **Player level / XP** from matches, card upgrades and quests; level-ups give a chest + gems.
+- **Quests**: 3 dailies (rotate at local midnight, 1 free reroll) and 3 weeklies; rewards coins,
+  XP and pass tokens; progress shows on the results screen with "Quest complete!" toasts.
+- **Tower Pass**: 30 tiers per 28-day season, free + premium track. Premium costs 500 *earned*
+  gems. Season end: trophies above 1500 lose half the excess, a reward by peak arena, the pass
+  resets and the leaderboards keep "last season's top 3".
+- **Shop**: free daily gift, 6 daily offers (arena-gated tower cards for coins, a chest for gems,
+  a cosmetic for gems), gem → coin bundles, "refreshes in hh:mm". Gems cannot be bought.
+- **Cosmetics**: profile icons and emotes (4 starter emotes, more from rewards).
+- **Co-op campaign**: 1★ Easy, 2★ Normal, 3★ Hard per map; 2★ unlocks the next map; first-clear
+  rewards. **Endless co-op** (unlocks after any 2★) has no final wave and feeds a leaderboard.
+- **Leaderboards** (Social tab): Duel, Team and Endless (best run per team composition, per map),
+  Global/Friends and This season/All time, top 100 with your own rank pinned.
+
+### Dev panel (local testing)
+`npm run play` and `npm run dev` start the server with `DEV_TOOLS=1`. In the app press
+<kbd>`</kbd> (backtick) or click **🛠 Dev** / **DEV** to open the panel. It can grant coins, gems,
+XP, pass tokens, a reward drop, a chest, copies of one card or of all cards; unlock everything;
+set Duel / 2v2 trophies; reset daily quests/drops/shop; end the season now; start a bot ranked
+Duel or 2v2 instantly; fast-forward the current match (+60 s / +10 min); and reset your
+progression. All of it goes through `/api/dev/*`, which answers **403** unless the server runs
+with `DEV_TOOLS=1` (plain `npm start` has it off).
+
+### Balance (fast-forward, `npm run balance`)
+
+Co-op with the **starter loadout** (identical with the classic six — the bot rarely needs Tesla
+and never builds mines) is the table above. Ranked bot-vs-bot under ranked rules, both bots
+sending troops, 80 games per row, seats alternated, maps rotated, only card levels differ:
+
+```
+       matchup | favoured win % |          draws |     avg length |      avg waves
+      L5 vs L5 |            58% |              1 |        7.1 min |           21.0
+ L6 vs L5 (+1) |            71% |              0 |        7.2 min |           21.3
+ L8 vs L5 (+3) |            88% |              0 |        7.2 min |           21.3
+L10 vs L5 (+5) |            91% |              0 |        7.2 min |           21.4
+```
+
+Equal levels is a coin flip within noise (a 200-game run gives 53.5%). Level differences matter a
+lot between two *identical* bots (any edge snowballs); trophy matchmaking pairs similar
+collections, and Friendly lobbies can switch on Equal levels.
 
 ## Project layout
 
 ```
 package.json, tsconfig.json, vite.config.ts, vitest.config.ts
-src/shared/    config.ts (ALL balance numbers), maps.ts, waves.ts, types.ts, protocol.ts, rng.ts
+src/shared/    config.ts (ALL match balance numbers), progression.ts (ALL meta-game numbers),
+               maps.ts, waves.ts, types.ts, protocol.ts, progProtocol.ts, rng.ts
 src/server/    index.ts (entry), app.ts (express + socket.io), db.ts (JSON store), auth.ts,
                social.ts (friends/presence/invites), rooms.ts (lobbies), match.ts (match loop),
                io.ts (socket types, rate limiter)
 src/server/sim/ game.ts (GameSim), board.ts, enemies.ts, towers.ts, targeting.ts, economy.ts,
-               bot.ts (headless greedy bot), balance.ts (fast-forward harness)
+               bot.ts (headless bot / ranked opponent), balance.ts (fast-forward harness)
+src/server/progression/ profile.ts, trophies.ts, rewards.ts, quests.ts, season.ts, leaderboard.ts,
+               matchRewards.ts, matchmaking.ts, service.ts (sockets, room hooks, /api/dev)
 src/client/    index.html, main.tsx, net.ts, store.ts, styles.css
-src/client/ui/ App, AuthScreen, MainMenu, Lobby, GameScreen, Results, FriendsPanel, components
+src/client/ui/ App, AuthScreen, Lobby, GameScreen, Results, FriendsPanel, MainMenu (friendly-lobby
+               panels), components
+src/client/ui/hub/ Home (top bar + bottom nav), BattleTab, CollectionTab, ProgressTab, ShopTab,
+               SocialTab, overlays (matchmaking, VS), reveals (drops, chests, level-ups), DevPanel
 src/client/game/ renderer.ts (canvas), art.ts (vector art), input.ts, interpolation.ts, gameState.ts
 scripts/balance.ts
-tests/         sim.test.ts (unit), integration.test.ts (real server + sockets), balance.test.ts
+tests/         sim.test.ts, sim-phase2.test.ts, progression.test.ts (unit),
+               integration.test.ts, ranked.test.ts (real server + sockets), balance.test.ts
 ```
 
 The client renders snapshots ~1.7 ticks in the past and interpolates enemies/shells by id

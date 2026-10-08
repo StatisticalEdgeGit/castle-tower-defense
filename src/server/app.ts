@@ -12,6 +12,7 @@ import { AuthService } from './auth';
 import { JsonDb } from './db';
 import { fail, TokenBucket, type IO, type Result, type SocketData } from './io';
 import type { Match } from './match';
+import { ProgressionService, type ProgressionOptions } from './progression/service';
 import { RoomManager, type RoomManagerOptions } from './rooms';
 import { Social } from './social';
 
@@ -22,7 +23,9 @@ export interface ServerOptions {
   /** directory with the built client (index.html); null = API only (dev uses Vite) */
   staticDir?: string | null;
   rooms?: RoomManagerOptions;
-  /** extra setup (the progression layer plugs in here) */
+  /** progression / ranked layer options (clock, dev tools, bot timeout...) */
+  progression?: ProgressionOptions;
+  /** extra setup */
   extend?: (ctx: ServerContext) => void;
 }
 
@@ -35,6 +38,7 @@ export interface ServerContext {
   rooms: RoomManager;
   /** registered socket handler extensions, run for every new connection */
   onConnection: ((sock: import('./io').Sock) => void)[];
+  progression?: ProgressionService;
 }
 
 export interface RunningServer extends ServerContext {
@@ -129,7 +133,14 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
     const m = /:(\d+)$/.exec(String(hostHeader));
     const publicPort = m ? Number(m[1]) : port;
     const lan = lanAddresses();
-    res.json({ ok: true, port: publicPort, serverPort: port, lan, urls: lan.map((ip) => `http://${ip}:${publicPort}`) });
+    res.json({
+      ok: true,
+      port: publicPort,
+      serverPort: port,
+      lan,
+      urls: lan.map((ip) => `http://${ip}:${publicPort}`),
+      devTools: !!opts.progression?.devTools,
+    });
   });
   app.get('/api/rooms/:code', (req, res) => {
     const code = normalizeRoomCode(req.params.code);
@@ -181,7 +192,7 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
     sock.on(EV.roomCreate, guard((p, ack) => reply(ack, rooms.create(user, p ?? {}))));
     sock.on(EV.roomJoin, guard((p, ack) => reply(ack, rooms.join(user, p?.code))));
     sock.on(EV.roomLeave, guard((ack) => reply(ack, rooms.leave(user.id))));
-    sock.on(EV.roomSettings, guard((p, ack) => reply(ack, rooms.settings(user.id, p))));
+    sock.on(EV.roomSettings, guard((p, ack) => reply(ack, rooms.settings(user, p))));
     sock.on(EV.roomReady, guard((p, ack) => reply(ack, rooms.setReady(user.id, p?.ready))));
     sock.on(EV.roomTeam, guard((p, ack) => reply(ack, rooms.setTeam(user.id, p?.team))));
     sock.on(EV.roomKick, guard((p, ack) => reply(ack, rooms.kick(user.id, p?.playerId))));
@@ -235,10 +246,14 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
     for (const ext of ctx.onConnection) ext(sock);
 
     sock.on('disconnect', () => {
-      if (social.disconnect(sock)) rooms.onUserOffline(user.id);
+      if (social.disconnect(sock)) {
+        rooms.onUserOffline(user.id);
+        ctx.progression?.onUserOffline(user.id);
+      }
     });
   });
 
+  ctx.progression = new ProgressionService(ctx, opts.progression);
   opts.extend?.(ctx);
 
   // ── static client (production build) with SPA fallback (/join/CODE etc.) ──
@@ -278,6 +293,7 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
     async close() {
       if (closed) return;
       closed = true;
+      ctx.progression?.dispose();
       rooms.dispose();
       social.dispose();
       io.disconnectSockets(true);

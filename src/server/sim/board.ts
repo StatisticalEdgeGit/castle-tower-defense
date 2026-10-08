@@ -26,6 +26,19 @@ export interface Enemy {
   sent: boolean;
   senderId: string | null;
   alive: boolean;
+  /** HP multiplier this enemy spawned with (children of splitters inherit it) */
+  hpMult: number;
+  /** damage absorbed before HP (shieldbearer pulse) */
+  shield: number;
+  /** shieldbearer: its one-time pulse has fired */
+  pulsed: boolean;
+  burnDps: number;
+  burnTime: number;
+  burnTower: Tower | null;
+  poisonStacks: number;
+  poisonDps: number;
+  poisonTime: number;
+  poisonTower: Tower | null;
 }
 
 export interface Tower {
@@ -46,6 +59,14 @@ export interface Tower {
   targetId: number;
   /** per-player stat multiplier (card level hook): damage, or income for mines */
   mult: number;
+  /** card level the tower was built with (1–10) */
+  cardLevel: number;
+  /** strongest War Totem buffs currently applying to this tower */
+  buffDmg: number;
+  buffRate: number;
+  /** prism beam state */
+  beamTarget: number;
+  beamTime: number;
   kills: number;
   damage: number;
 }
@@ -61,6 +82,10 @@ export interface Shell {
   damage: number;
   splash: number;
   tower: Tower;
+  /** cannon shells follow their target; mortar shells fly to a fixed point */
+  homing: boolean;
+  /** 0 = cannon shell, 1 = mortar shell (client visuals) */
+  kind: number;
 }
 
 export interface QueuedSpawn {

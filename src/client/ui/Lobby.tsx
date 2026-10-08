@@ -2,11 +2,12 @@ import { useState } from 'react';
 import { DIFFICULTY, MODE_INFO, PLAYER_COLOR_NAMES, PLAYER_COLORS } from '../../shared/config';
 import { MAP_IDS, MAPS } from '../../shared/maps';
 import { EV, type RoomPlayer, type RoomState } from '../../shared/protocol';
-import type { Difficulty, GameMode } from '../../shared/types';
+import type { Difficulty, GameMode, MapId } from '../../shared/types';
 import { act, copyText, inviteLink, isLocalhost, lanOrigin, leaveRoom } from '../net';
 import { confirmDialog, store, toast, useStore } from '../store';
 import { TopBar } from './App';
-import { ChatInput, ChatLog, MapBadge, MapThumb, Switch } from './components';
+import { ChatInput, ChatLog, MapBadge, MapThumb, Switch, TowerIcon } from './components';
+import { LevelInline, ProfileIcon, Stars } from './hub/bits';
 import { FriendsPanel } from './FriendsPanel';
 
 const EMPTY: string[] = [];
@@ -93,9 +94,17 @@ function PlayerSlot({ p, room, me }: { p: RoomPlayer; room: RoomState; me: strin
               👑
             </span>
           )}
+          <ProfileIcon icon={p.icon} size="sm" />
+          <LevelInline level={p.level} />
           <span className="pname ellipsis">{p.name}</span>
           {p.guest && <span className="tag-guest">guest</span>}
+          {p.bot && <span className="bot-tag">bot</span>}
           {p.id === me && <span className="dim" style={{ fontSize: 12 }}>(you)</span>}
+        </div>
+        <div className="row" style={{ gap: 2, marginTop: 4 }} title="Towers this player brings">
+          {p.loadout.map((t) => (
+            <TowerIcon key={t} type={t} size={22} />
+          ))}
         </div>
         <div className="row" style={{ marginTop: 4 }}>
           {isHost ? (
@@ -130,6 +139,8 @@ function PlayerSlot({ p, room, me }: { p: RoomPlayer; room: RoomState; me: strin
 
 function Settings({ room, amHost }: { room: RoomState; amHost: boolean }) {
   const set = (patch: object) => void act(EV.roomSettings, patch);
+  const profile = useStore((s) => s.profile);
+  const coopLocked = (id: MapId) => room.mode === 'coop' && !room.endless && !!profile && !profile.unlockedMaps.includes(id);
   return (
     <div className="panel">
       <div className="panel-title">
@@ -147,13 +158,21 @@ function Settings({ room, amHost }: { room: RoomState; amHost: boolean }) {
       </div>
       <div className="map-grid">
         {MAP_IDS.map((id) => (
-          <button key={id} className={`map-card ${room.mapId === id ? 'active' : ''}`} disabled={!amHost} onClick={() => set({ mapId: id })} style={{ cursor: amHost ? 'pointer' : 'default' }}>
+          <button
+            key={id}
+            className={`map-card ${room.mapId === id ? 'active' : ''}`}
+            disabled={!amHost}
+            onClick={() => set({ mapId: id })}
+            style={{ cursor: amHost ? 'pointer' : 'default', opacity: amHost && coopLocked(id) ? 0.5 : 1 }}
+          >
             <MapThumb mapId={id} width={160} />
             <div className="meta">
               <span className="name">{MAPS[id].name}</span>
-              <MapBadge mapId={id} />
+              {room.mode === 'coop' && profile ? <Stars n={profile.campaign[id] ?? 0} /> : <MapBadge mapId={id} />}
             </div>
-            {room.mode === 'coop' && <div className="fw">Final wave {MAPS[id].finalWave}</div>}
+            {room.mode === 'coop' && (
+              <div className="fw">{amHost && coopLocked(id) ? '🔒 earn 2★ on the previous map' : room.endless ? `Best ${profile?.endlessBest[id] ?? 0}` : `Final wave ${MAPS[id].finalWave}`}</div>
+            )}
           </button>
         ))}
       </div>
@@ -166,6 +185,20 @@ function Settings({ room, amHost }: { room: RoomState; amHost: boolean }) {
           ))}
         </div>
         <Switch on={room.isPublic} disabled={!amHost} onChange={(v) => set({ isPublic: v })} label={room.isPublic ? 'Public (listed in Browse)' : 'Private (invite only)'} />
+        <Switch
+          on={room.equalLevels}
+          disabled={!amHost}
+          onChange={(v) => set({ equalLevels: v })}
+          label={room.equalLevels ? 'Equal levels (all towers Lv 5)' : 'Real card levels'}
+        />
+        {room.mode === 'coop' && (
+          <Switch
+            on={room.endless}
+            disabled={!amHost || (!!profile && !profile.endlessUnlocked)}
+            onChange={(v) => set({ endless: v })}
+            label={room.endless ? 'Endless (no final wave)' : profile && !profile.endlessUnlocked ? 'Endless 🔒 (2★ on any map)' : 'Endless off'}
+          />
+        )}
       </div>
     </div>
   );
@@ -254,6 +287,14 @@ export function Lobby() {
                       Open slot — invite a friend or share the code
                     </div>
                   ))}
+                </div>
+              )}
+              {amHost && room.players.filter((p) => !p.bot).length === 2 && room.players.every((p) => !p.guest) && (
+                <div className="callout blue row" style={{ marginTop: 14, marginBottom: 0 }}>
+                  <span className="grow">Two of you? Take this duo into the ranked 2v2 ladder together.</span>
+                  <button className="btn btn-sm btn-blue" onClick={() => void act(EV.roomQueueRanked)}>
+                    🏆 Queue ranked 2v2 together
+                  </button>
                 </div>
               )}
               <div className="row" style={{ marginTop: 16 }}>

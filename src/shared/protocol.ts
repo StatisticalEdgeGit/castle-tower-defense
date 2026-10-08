@@ -1,5 +1,21 @@
 // Socket.IO event names and payload types shared by server and client.
 import type {
+  DropOpenResult,
+  EmoteEvent,
+  Granted,
+  LeaderboardQuery,
+  LeaderboardView,
+  LevelUp,
+  MatchRewards,
+  MmStatus,
+  PartyInvite,
+  PartyView,
+  ProfileView,
+  RankedMode,
+  VsInfo,
+} from './progProtocol';
+import type { ChestTier } from './progression';
+import type {
   Difficulty,
   GameMode,
   MapId,
@@ -42,6 +58,29 @@ export const EV = {
   speedVote: 'game:speedVote',
   chat: 'game:chat',
   resync: 'game:resync',
+  emote: 'game:emote',
+  roomQueueRanked: 'room:queueRanked',
+  progGet: 'prog:get',
+  progClaimRoad: 'prog:claimRoad',
+  progOpenDrop: 'prog:openDrop',
+  progOpenChest: 'prog:openChest',
+  progUpgradeCard: 'prog:upgradeCard',
+  progSetLoadout: 'prog:setLoadout',
+  progSetIcon: 'prog:setIcon',
+  progClaimQuest: 'prog:claimQuest',
+  progRerollQuest: 'prog:rerollQuest',
+  progClaimPass: 'prog:claimPass',
+  progBuyPremium: 'prog:buyPremium',
+  progShopBuy: 'prog:shopBuy',
+  progClaimGift: 'prog:claimGift',
+  progBuyBundle: 'prog:buyBundle',
+  progLeaderboard: 'prog:leaderboard',
+  progAckSeason: 'prog:ackSeason',
+  mmQueue: 'mm:queue',
+  mmCancel: 'mm:cancel',
+  partyInvite: 'party:invite',
+  partyRespond: 'party:respond',
+  partyLeave: 'party:leave',
   // ── server → client ──
   hello: 'session:hello',
   toast: 'toast',
@@ -56,6 +95,13 @@ export const EV = {
   matchSnap: 'match:snap',
   matchOver: 'match:over',
   chatMsg: 'chat:msg',
+  progState: 'prog:state',
+  progMatchRewards: 'prog:matchRewards',
+  mmStatus: 'mm:status',
+  mmFound: 'mm:found',
+  partyState: 'party:state',
+  partyInvited: 'party:invited',
+  matchEmote: 'match:emote',
 } as const;
 
 // ── Social ───────────────────────────────────────────────────────────────────
@@ -109,6 +155,11 @@ export interface RoomPlayer {
   team: number;
   ready: boolean;
   connected: boolean;
+  bot: boolean;
+  /** towers this player will bring (their loadout) */
+  loadout: TowerType[];
+  level: number;
+  icon: string;
 }
 
 export interface ChatMsg {
@@ -133,6 +184,11 @@ export interface RoomState {
   chat: ChatMsg[];
   maxPlayers: number;
   lastResults: MatchResults | null;
+  /** friendly lobbies: everyone's towers count as level 5 */
+  equalLevels: boolean;
+  /** co-op without a final wave */
+  endless: boolean;
+  ranked: RankedMode | null;
 }
 
 export interface PublicRoomInfo {
@@ -150,6 +206,8 @@ export interface RoomSettingsPatch {
   mapId?: MapId;
   difficulty?: Difficulty;
   isPublic?: boolean;
+  equalLevels?: boolean;
+  endless?: boolean;
 }
 
 // ── Match ────────────────────────────────────────────────────────────────────
@@ -162,6 +220,10 @@ export interface MatchPlayerInfo {
   boardId: number;
   loadout: TowerType[];
   troops: PackId[];
+  bot: boolean;
+  icon: string;
+  level: number;
+  emotes: string[];
 }
 
 export interface MatchBoardInfo {
@@ -177,6 +239,8 @@ export interface MatchStartInfo {
   difficulty: Difficulty;
   finalWave: number | null;
   ranked: boolean;
+  endless: boolean;
+  vsBot: boolean;
   players: MatchPlayerInfo[];
   boards: MatchBoardInfo[];
 }
@@ -192,7 +256,9 @@ export type Fx =
   | { k: 'inc'; from: string; pack: PackId; count: number; delay: number }
   | { k: 'build'; x: number; y: number }
   | { k: 'sell'; x: number; y: number; v: number }
-  | { k: 'wave'; wave: number; boss: boolean };
+  | { k: 'wave'; wave: number; boss: boolean }
+  | { k: 'flame'; x: number; y: number; a: number; r: number; c: number }
+  | { k: 'shieldup'; x: number; y: number; r: number };
 
 export interface TowerSnap {
   id: number;
@@ -208,8 +274,8 @@ export interface TowerSnap {
 
 /** [id, typeIndex, x, y, hpFrac, slowed(0|1)] */
 export type EnemyTuple = [number, number, number, number, number, number];
-/** [id, x, y] */
-export type ShellTuple = [number, number, number];
+/** [id, x, y, kind(0 cannon, 1 mortar)] */
+export type ShellTuple = [number, number, number, number];
 
 export interface BoardSnap {
   id: number;
@@ -222,6 +288,10 @@ export interface BoardSnap {
   shells: ShellTuple[];
   /** flattened [towerId, angle*100, ...] for towers currently tracking a target */
   aim: number[];
+  /** flattened [towerId, enemyId, ramp*100, ...] for active prism beams */
+  beams: number[];
+  /** ids of towers currently buffed by a War Totem */
+  buffed: number[];
   fx: Fx[];
 }
 
@@ -254,6 +324,8 @@ export interface PlayerMatchStats {
   earned: number;
   sent: number;
   built: number;
+  builtBy: Partial<Record<TowerType, number>>;
+  damageBy: Partial<Record<TowerType, number>>;
 }
 
 export interface MatchResults {
@@ -262,6 +334,9 @@ export interface MatchResults {
   mapId: MapId;
   difficulty: Difficulty;
   outcome: 'victory' | 'defeat' | 'versus';
+  ranked: boolean;
+  endless: boolean;
+  vsBot: boolean;
   winners: string[];
   wave: number;
   wavesSurvived: number;
@@ -293,7 +368,7 @@ export interface ServerToClientEvents {
   [EV.hello]: (p: HelloPayload) => void;
   [EV.toast]: (t: ToastMsg) => void;
   [EV.roomState]: (r: RoomState) => void;
-  [EV.roomClosed]: (p: { reason: string }) => void;
+  [EV.roomClosed]: (p: { reason: string; silent?: boolean }) => void;
   [EV.browseList]: (rooms: PublicRoomInfo[]) => void;
   [EV.socialState]: (s: SocialState) => void;
   [EV.presence]: (p: { userId: string; status: PresenceStatus }) => void;
@@ -303,10 +378,20 @@ export interface ServerToClientEvents {
   [EV.matchSnap]: (s: Snapshot) => void;
   [EV.matchOver]: (r: MatchResults) => void;
   [EV.chatMsg]: (m: ChatMsg) => void;
+  [EV.progState]: (p: ProfileView) => void;
+  [EV.progMatchRewards]: (r: MatchRewards) => void;
+  [EV.mmStatus]: (s: MmStatus) => void;
+  [EV.mmFound]: (v: VsInfo) => void;
+  [EV.partyState]: (p: PartyView | null) => void;
+  [EV.partyInvited]: (i: PartyInvite) => void;
+  [EV.matchEmote]: (e: EmoteEvent) => void;
 }
 
 export interface ClientToServerEvents {
-  [EV.roomCreate]: (p: { mode: GameMode; mapId: MapId; difficulty: Difficulty; isPublic?: boolean }, ack: AckFn<{ room: RoomState }>) => void;
+  [EV.roomCreate]: (
+    p: { mode: GameMode; mapId: MapId; difficulty: Difficulty; isPublic?: boolean; endless?: boolean; equalLevels?: boolean },
+    ack: AckFn<{ room: RoomState }>,
+  ) => void;
   [EV.roomJoin]: (p: { code: string }, ack: AckFn<{ room: RoomState }>) => void;
   [EV.roomLeave]: (ack?: AckFn) => void;
   [EV.roomSettings]: (p: RoomSettingsPatch, ack?: AckFn) => void;
@@ -332,6 +417,29 @@ export interface ClientToServerEvents {
   [EV.speedVote]: (p: { value?: boolean }, ack?: AckFn) => void;
   [EV.chat]: (p: { text: string }, ack?: AckFn) => void;
   [EV.resync]: () => void;
+  [EV.emote]: (p: { emoteId: string }, ack?: AckFn) => void;
+  [EV.roomQueueRanked]: (ack?: AckFn) => void;
+  [EV.progGet]: (ack: AckFn<{ profile: ProfileView }>) => void;
+  [EV.progClaimRoad]: (p: { nodeId: number }, ack: AckFn<{ granted: Granted[] }>) => void;
+  [EV.progOpenDrop]: (p: { dropId: string }, ack: AckFn<DropOpenResult>) => void;
+  [EV.progOpenChest]: (p: { chestId: string }, ack: AckFn<{ tier: ChestTier; granted: Granted[] }>) => void;
+  [EV.progUpgradeCard]: (p: { tower: TowerType }, ack: AckFn<{ level: number; xp: number; levelUps: LevelUp[] }>) => void;
+  [EV.progSetLoadout]: (p: { towers: TowerType[]; troops: PackId[] }, ack: AckFn) => void;
+  [EV.progSetIcon]: (p: { icon: string }, ack: AckFn) => void;
+  [EV.progClaimQuest]: (p: { questId: string }, ack: AckFn<{ granted: Granted[]; levelUps: LevelUp[] }>) => void;
+  [EV.progRerollQuest]: (p: { questId: string }, ack: AckFn) => void;
+  [EV.progClaimPass]: (p: { tier: number; track: 'free' | 'premium' }, ack: AckFn<{ granted: Granted[] }>) => void;
+  [EV.progBuyPremium]: (ack: AckFn) => void;
+  [EV.progShopBuy]: (p: { offerId: string }, ack: AckFn<{ granted: Granted[] }>) => void;
+  [EV.progClaimGift]: (ack: AckFn<{ granted: Granted[] }>) => void;
+  [EV.progBuyBundle]: (p: { bundleId: string }, ack: AckFn<{ granted: Granted[] }>) => void;
+  [EV.progLeaderboard]: (p: LeaderboardQuery, ack: AckFn<LeaderboardView>) => void;
+  [EV.progAckSeason]: (ack?: AckFn) => void;
+  [EV.mmQueue]: (p: { mode: RankedMode }, ack: AckFn) => void;
+  [EV.mmCancel]: (ack?: AckFn) => void;
+  [EV.partyInvite]: (p: { userId: string }, ack: AckFn) => void;
+  [EV.partyRespond]: (p: { partyId: string; accept: boolean }, ack: AckFn) => void;
+  [EV.partyLeave]: (ack?: AckFn) => void;
 }
 
 /** Room codes avoid ambiguous characters (0/O, 1/I/L). */

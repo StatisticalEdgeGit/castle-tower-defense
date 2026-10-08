@@ -5,10 +5,10 @@
   "description": "Multiplayer co-op / versus tower defense (local + LAN testing build)",
   "type": "module",
   "scripts": {
-    "dev": "concurrently -k -n server,client -c cyan,magenta \"tsx watch src/server/index.ts --dev\" \"vite\"",
+    "dev": "concurrently -k -n server,client -c cyan,magenta \"cross-env DEV_TOOLS=1 tsx watch src/server/index.ts --dev\" \"vite\"",
     "build": "vite build",
     "start": "tsx src/server/index.ts",
-    "play": "npm run build && npm start",
+    "play": "npm run build && cross-env DEV_TOOLS=1 npm start",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "balance": "tsx scripts/balance.ts"
@@ -27,6 +27,7 @@
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.1.2",
     "concurrently": "^10.0.6",
+    "cross-env": "^10.1.0",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2",
     "vite": "^8.3.4",

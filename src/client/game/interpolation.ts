@@ -68,7 +68,7 @@ export interface InterpEnemy {
   x: number;
   y: number;
   hp: number;
-  slowed: boolean;
+  flags: number;
   dx: number;
   dy: number;
 }
@@ -91,22 +91,22 @@ export function interpolateEnemies(a: BoardSnap | undefined, b: BoardSnap, alpha
         x: lerp(p[2], e[2], alpha),
         y: lerp(p[3], e[3], alpha),
         hp: lerp(p[4], e[4], alpha),
-        slowed: e[5] === 1,
+        flags: e[5],
         dx: e[2] - p[2],
         dy: e[3] - p[3],
       });
     } else {
-      out.push({ id: e[0], typeIdx: e[1], x: e[2], y: e[3], hp: e[4], slowed: e[5] === 1, dx: 0, dy: 0 });
+      out.push({ id: e[0], typeIdx: e[1], x: e[2], y: e[3], hp: e[4], flags: e[5], dx: 0, dy: 0 });
     }
   }
   return out;
 }
 
-export function interpolateShells(a: BoardSnap | undefined, b: BoardSnap, alpha: number): { id: number; x: number; y: number }[] {
-  const prev = new Map<number, [number, number, number]>();
+export function interpolateShells(a: BoardSnap | undefined, b: BoardSnap, alpha: number): { id: number; x: number; y: number; kind: number }[] {
+  const prev = new Map<number, BoardSnap['shells'][number]>();
   if (a && a !== b) for (const s of a.shells) prev.set(s[0], s);
   return b.shells.map((s) => {
     const p = prev.get(s[0]);
-    return p ? { id: s[0], x: lerp(p[1], s[1], alpha), y: lerp(p[2], s[2], alpha) } : { id: s[0], x: s[1], y: s[2] };
+    return p ? { id: s[0], x: lerp(p[1], s[1], alpha), y: lerp(p[2], s[2], alpha), kind: s[3] } : { id: s[0], x: s[1], y: s[2], kind: s[3] };
   });
 }

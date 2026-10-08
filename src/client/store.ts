@@ -11,6 +11,8 @@ import type {
   ToastMsg,
 } from '../shared/protocol';
 import type { PlayerStats, PublicUser } from '../shared/types';
+import type { ChestTier } from '../shared/progression';
+import type { DropOpenResult, Granted, LevelUp, MatchRewards, MmStatus, PartyInvite, PartyView, ProfileView, VsInfo } from '../shared/progProtocol';
 
 export type View = 'boot' | 'auth' | 'menu' | 'lobby' | 'game' | 'results';
 
@@ -22,7 +24,17 @@ export interface ServerInfo {
   port: number;
   lan: string[];
   urls: string[];
+  devTools: boolean;
 }
+
+export type HubTab = 'shop' | 'collection' | 'battle' | 'social' | 'progress';
+
+export type Reveal =
+  | { kind: 'drop'; dropId: string; result: DropOpenResult | null }
+  | { kind: 'chest'; chestId: string; tier: ChestTier; granted: Granted[] | null }
+  | { kind: 'granted'; title: string; granted: Granted[] };
+
+export type Celebration = { kind: 'levelup'; levelUps: LevelUp[] } | { kind: 'arena'; arena: number };
 
 export interface ConfirmState {
   title: string;
@@ -50,6 +62,16 @@ export interface AppState {
   serverInfo: ServerInfo | null;
   friendsOpen: boolean;
   confirm: ConfirmState | null;
+  profile: ProfileView | null;
+  tab: HubTab;
+  mm: MmStatus;
+  vs: VsInfo | null;
+  party: PartyView | null;
+  partyInvites: PartyInvite[];
+  rewards: MatchRewards | null;
+  reveal: Reveal | null;
+  celebrations: Celebration[];
+  devOpen: boolean;
 }
 
 const initial: AppState = {
@@ -71,6 +93,16 @@ const initial: AppState = {
   serverInfo: null,
   friendsOpen: false,
   confirm: null,
+  profile: null,
+  tab: 'battle',
+  mm: { state: 'idle', mode: null, since: 0, party: [] },
+  vs: null,
+  party: null,
+  partyInvites: [],
+  rewards: null,
+  reveal: null,
+  celebrations: [],
+  devOpen: false,
 };
 
 let state: AppState = initial;

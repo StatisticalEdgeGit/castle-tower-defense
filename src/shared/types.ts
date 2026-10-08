@@ -4,18 +4,24 @@ export type GameMode = 'coop' | 'ffa' | 'teams';
 export type Difficulty = 'easy' | 'normal' | 'hard';
 export type MapId = 'greenfield' | 'canyon' | 'crossroads' | 'spiral';
 
-export const TOWER_TYPES = ['archer', 'cannon', 'frost', 'sniper', 'tesla', 'mine'] as const;
+/** The six classic towers come first: they are the default loadout (hotkeys 1–6). */
+export const TOWER_TYPES = ['archer', 'cannon', 'frost', 'sniper', 'tesla', 'mine', 'flame', 'mortar', 'venom', 'prism', 'totem'] as const;
 export type TowerType = (typeof TOWER_TYPES)[number];
+export const CLASSIC_TOWERS: TowerType[] = ['archer', 'cannon', 'frost', 'sniper', 'tesla', 'mine'];
 
 /** Order matters: the index is the `typeIndex` sent in compact enemy snapshots. */
-export const ENEMY_TYPES = ['grunt', 'runner', 'swarm', 'knight', 'brute', 'healer', 'warlord'] as const;
+export const ENEMY_TYPES = ['grunt', 'runner', 'swarm', 'knight', 'brute', 'healer', 'warlord', 'splitter', 'splitling', 'shield'] as const;
 export type EnemyType = (typeof ENEMY_TYPES)[number];
+
+/** Bit flags packed into the 6th element of an enemy snapshot tuple. */
+export const ENEMY_FLAG = { slowed: 1, shielded: 2, burning: 4, poisoned: 8 } as const;
 
 export const TARGET_MODES = ['first', 'last', 'strong', 'close'] as const;
 export type TargetMode = (typeof TARGET_MODES)[number];
 
-export const PACK_IDS = ['grunts', 'runners', 'swarm', 'brutes', 'knights', 'healers', 'warlord'] as const;
+export const PACK_IDS = ['grunts', 'runners', 'swarm', 'brutes', 'knights', 'healers', 'warlord', 'splitters', 'shields'] as const;
 export type PackId = (typeof PACK_IDS)[number];
+export const CLASSIC_PACKS: PackId[] = ['grunts', 'runners', 'swarm', 'brutes', 'knights', 'healers', 'warlord'];
 
 export type MatchPhase = 'prep' | 'running' | 'between' | 'over';
 

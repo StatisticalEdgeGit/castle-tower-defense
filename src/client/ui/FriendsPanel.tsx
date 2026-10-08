@@ -128,6 +128,18 @@ export function FriendsPanel({ showClose = false, inviteMode = false }: { showCl
                 </button>
               )}
               {inRoom && <span className="badge blue">In room</span>}
+              {!inviteMode && f.status === 'online' && (
+                <button
+                  className="btn btn-sm"
+                  title="Invite to a party for Ranked 2v2"
+                  onClick={async () => {
+                    const r = await act(EV.partyInvite, { userId: f.id });
+                    if (r.ok) toast('success', `Party invite sent to ${f.name}`);
+                  }}
+                >
+                  🤝 Party
+                </button>
+              )}
               {!inviteMode && (
                 <button
                   className="btn btn-sm btn-ghost"

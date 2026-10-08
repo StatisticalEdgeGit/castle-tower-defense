@@ -8,13 +8,14 @@ import { game } from './gameState';
 import { interpolateEnemies, interpolateShells } from './interpolation';
 
 type Effect =
-  | { kind: 'line'; t0: number; dur: number; x1: number; y1: number; x2: number; y2: number; style: 'arrow' | 'tracer' | 'frost' }
+  | { kind: 'line'; t0: number; dur: number; x1: number; y1: number; x2: number; y2: number; style: 'arrow' | 'tracer' | 'frost' | 'venom' }
   | { kind: 'chain'; t0: number; dur: number; pts: number[]; seed: number }
   | { kind: 'ring'; t0: number; dur: number; x: number; y: number; r: number; color: string; fill?: string }
   | { kind: 'particles'; t0: number; dur: number; parts: { x: number; y: number; vx: number; vy: number; size: number; color: string }[] }
   | { kind: 'text'; t0: number; dur: number; x: number; y: number; text: string; color: string; size: number }
   | { kind: 'flash'; t0: number; dur: number; color: string }
-  | { kind: 'banner'; t0: number; dur: number; text: string; sub: string; color: string };
+  | { kind: 'banner'; t0: number; dur: number; text: string; sub: string; color: string }
+  | { kind: 'cone'; t0: number; dur: number; x: number; y: number; a: number; r: number; c: number };
 
 export interface PlacementCheck {
   ok: boolean;
@@ -134,7 +135,7 @@ export class BoardRenderer {
     switch (fx.k) {
       case 'shot': {
         if (mini) return;
-        const style = fx.t === 'sniper' ? 'tracer' : fx.t === 'frost' ? 'frost' : 'arrow';
+        const style = fx.t === 'sniper' ? 'tracer' : fx.t === 'frost' ? 'frost' : fx.t === 'venom' ? 'venom' : 'arrow';
         this.effects.push({ kind: 'line', t0: t, dur: style === 'tracer' ? 220 : 130, x1: fx.x1, y1: fx.y1, x2: fx.x2, y2: fx.y2, style });
         this.markRecoil(fx.x1, fx.y1, t);
         break;
@@ -194,6 +195,13 @@ export class BoardRenderer {
         if (mini) return;
         this.burst(fx.x, fx.y, 8, ['#c9a36b', '#888'], 1.4, t, 400);
         this.effects.push({ kind: 'text', t0: t, dur: 900, x: fx.x, y: fx.y - 0.2, text: `+$${fx.v}`, color: '#9cff9c', size: 0.36 });
+        break;
+      case 'flame':
+        if (mini) return;
+        this.effects.push({ kind: 'cone', t0: t, dur: 160, x: fx.x, y: fx.y, a: fx.a, r: fx.r, c: fx.c });
+        break;
+      case 'shieldup':
+        this.effects.push({ kind: 'ring', t0: t, dur: 600, x: fx.x, y: fx.y, r: fx.r, color: 'rgba(170,200,255,1)', fill: 'rgba(120,160,255,0.25)' });
         break;
       case 'wave':
         if (mini) return;
@@ -282,7 +290,7 @@ export class BoardRenderer {
 
     // selected tower range (under everything)
     const selected = isMain && ui.selectedTower !== null ? towers.find((t) => t.id === ui.selectedTower) : undefined;
-    if (selected && TOWERS[selected.type].attacks) {
+    if (selected && (TOWERS[selected.type].attacks || TOWERS[selected.type].support)) {
       const r = TOWERS[selected.type].levels[selected.level - 1].range * s;
       ctx.fillStyle = 'rgba(255,255,255,0.08)';
       ctx.strokeStyle = 'rgba(255,255,255,0.5)';
@@ -294,6 +302,7 @@ export class BoardRenderer {
     }
 
     // towers
+    const buffed = new Set(bB.buffed);
     for (const t of towers) {
       const target = game.aims.get(t.id);
       let a = this.angles.get(t.id) ?? -Math.PI / 2;
@@ -301,6 +310,12 @@ export class BoardRenderer {
       this.angles.set(t.id, a);
       const rt = this.recoil.get(t.id);
       const recoil = rt ? Math.max(0, 1 - (now - rt) / 140) : 0;
+      if (buffed.has(t.id)) {
+        ctx.fillStyle = `rgba(255,90,90,${0.18 + 0.08 * Math.sin(time * 4)})`;
+        ctx.beginPath();
+        ctx.arc((t.tx + 0.5) * s, (t.ty + 0.5) * s, s * 0.5, 0, Math.PI * 2);
+        ctx.fill();
+      }
       drawTower(ctx, t.type, (t.tx + 0.5) * s, (t.ty + 0.5) * s, s, {
         level: t.level,
         angle: a,
@@ -320,6 +335,7 @@ export class BoardRenderer {
     // enemies
     const enemies = interpolateEnemies(bA, bB, frame.alpha);
     enemies.sort((p, q) => p.y - q.y);
+    const enemyPos = new Map<number, { x: number; y: number }>();
     const seen = new Set<number>();
     for (const e of enemies) {
       seen.add(e.id);
@@ -329,19 +345,54 @@ export class BoardRenderer {
         this.dirs.set(e.id, dir);
       }
       const type = enemyTypeFromIndex(e.typeIdx);
-      drawEnemy(ctx, type, e.x * s, e.y * s, s, dir, e.hp, e.slowed, time + e.id * 0.37, !this.mini || type === 'warlord');
+      drawEnemy(ctx, type, e.x * s, e.y * s, s, dir, e.hp, e.flags, time + e.id * 0.37, !this.mini || type === 'warlord');
+      enemyPos.set(e.id, e);
     }
     if (this.dirs.size > enemies.length * 2 + 50) for (const id of [...this.dirs.keys()]) if (!seen.has(id)) this.dirs.delete(id);
 
-    // cannon shells
+    // prism beams
+    for (let i = 0; i + 2 < bB.beams.length; i += 3) {
+      const tw = towers.find((t) => t.id === bB.beams[i]);
+      const en = enemyPos.get(bB.beams[i + 1]);
+      if (!tw || !en) continue;
+      const ramp = bB.beams[i + 2] / 100;
+      const x1 = (tw.tx + 0.5) * s;
+      const y1 = (tw.ty + 0.5) * s;
+      const x2 = en.x * s;
+      const y2 = en.y * s;
+      const w = Math.max(1.5, s * (0.04 + 0.025 * ramp));
+      const flick = 0.75 + 0.25 * Math.sin(now / 30 + i);
+      const g = ctx.createLinearGradient(x1, y1, x2, y2);
+      g.addColorStop(0, `rgba(255,140,220,${0.9 * flick})`);
+      g.addColorStop(0.5, `rgba(150,220,255,${0.9 * flick})`);
+      g.addColorStop(1, `rgba(255,255,200,${0.95 * flick})`);
+      ctx.save();
+      ctx.shadowColor = '#bfe8ff';
+      ctx.shadowBlur = 6 + ramp * 3;
+      ctx.strokeStyle = g;
+      ctx.lineWidth = w;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(x1, y1);
+      ctx.lineTo(x2, y2);
+      ctx.stroke();
+      ctx.restore();
+      ctx.fillStyle = `rgba(255,255,255,${0.6 * flick})`;
+      ctx.beginPath();
+      ctx.arc(x2, y2, w * 1.4, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // cannon / mortar shells
     for (const sh of interpolateShells(bA, bB, frame.alpha)) {
+      const big = sh.kind === 1 ? 1.5 : 1;
       ctx.fillStyle = 'rgba(0,0,0,0.3)';
       ctx.beginPath();
-      ctx.ellipse(sh.x * s + s * 0.05, sh.y * s + s * 0.15, s * 0.09, s * 0.05, 0, 0, Math.PI * 2);
+      ctx.ellipse(sh.x * s + s * 0.05 * big, sh.y * s + s * 0.15 * big, s * 0.09 * big, s * 0.05 * big, 0, 0, Math.PI * 2);
       ctx.fill();
-      ctx.fillStyle = '#1d1d1d';
+      ctx.fillStyle = sh.kind === 1 ? '#3a3d32' : '#1d1d1d';
       ctx.beginPath();
-      ctx.arc(sh.x * s, sh.y * s, s * 0.1, 0, Math.PI * 2);
+      ctx.arc(sh.x * s, sh.y * s, s * 0.1 * big, 0, Math.PI * 2);
       ctx.fill();
       ctx.fillStyle = 'rgba(255,255,255,0.5)';
       ctx.beginPath();
@@ -419,8 +470,8 @@ export class BoardRenderer {
             const tl = Math.max(0, p - 0.35);
             const tx = e.x1 + (e.x2 - e.x1) * tl;
             const ty = e.y1 + (e.y2 - e.y1) * tl;
-            ctx.strokeStyle = e.style === 'frost' ? 'rgba(180,235,255,0.95)' : 'rgba(255,240,200,0.95)';
-            ctx.lineWidth = Math.max(1, s * (e.style === 'frost' ? 0.07 : 0.045));
+            ctx.strokeStyle = e.style === 'frost' ? 'rgba(180,235,255,0.95)' : e.style === 'venom' ? 'rgba(170,255,90,0.95)' : 'rgba(255,240,200,0.95)';
+            ctx.lineWidth = Math.max(1, s * (e.style === 'frost' || e.style === 'venom' ? 0.07 : 0.045));
             ctx.beginPath();
             ctx.moveTo(tx * s, ty * s);
             ctx.lineTo(hx * s, hy * s);
@@ -498,6 +549,20 @@ export class BoardRenderer {
           ctx.fillStyle = e.color;
           ctx.fillText(e.text, e.x * s, y);
           ctx.globalAlpha = 1;
+          break;
+        }
+        case 'cone': {
+          const cone = (e.c * Math.PI) / 180;
+          const g = ctx.createRadialGradient(e.x * s, e.y * s, 0, e.x * s, e.y * s, e.r * s);
+          g.addColorStop(0, `rgba(255,240,150,${0.85 * (1 - p)})`);
+          g.addColorStop(0.5, `rgba(255,140,40,${0.6 * (1 - p)})`);
+          g.addColorStop(1, 'rgba(200,40,0,0)');
+          ctx.fillStyle = g;
+          ctx.beginPath();
+          ctx.moveTo(e.x * s, e.y * s);
+          ctx.arc(e.x * s, e.y * s, e.r * s, e.a - cone, e.a + cone);
+          ctx.closePath();
+          ctx.fill();
           break;
         }
         case 'flash': {
