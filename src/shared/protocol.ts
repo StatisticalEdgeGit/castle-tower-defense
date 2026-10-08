@@ -1,0 +1,347 @@
+// Socket.IO event names and payload types shared by server and client.
+import type {
+  Difficulty,
+  GameMode,
+  MapId,
+  MatchPhase,
+  PackId,
+  PlayerStats,
+  PublicUser,
+  TargetMode,
+  TowerType,
+} from './types';
+
+export type Ack<T extends object = object> = ({ ok: true } & T) | { ok: false; error: string };
+export type AckFn<T extends object = object> = (res: Ack<T>) => void;
+
+export const EV = {
+  // ── client → server ──
+  roomCreate: 'room:create',
+  roomJoin: 'room:join',
+  roomLeave: 'room:leave',
+  roomSettings: 'room:settings',
+  roomReady: 'room:ready',
+  roomTeam: 'room:team',
+  roomKick: 'room:kick',
+  roomChat: 'room:chat',
+  roomStart: 'room:start',
+  browseSubscribe: 'browse:subscribe',
+  browseUnsubscribe: 'browse:unsubscribe',
+  friendRequest: 'friends:request',
+  friendRespond: 'friends:respond',
+  friendCancel: 'friends:cancel',
+  friendRemove: 'friends:remove',
+  inviteSend: 'invite:send',
+  inviteRespond: 'invite:respond',
+  placeTower: 'game:placeTower',
+  upgradeTower: 'game:upgradeTower',
+  sellTower: 'game:sellTower',
+  setTargeting: 'game:setTargeting',
+  sendTroops: 'game:sendTroops',
+  ready: 'game:ready',
+  speedVote: 'game:speedVote',
+  chat: 'game:chat',
+  resync: 'game:resync',
+  // ── server → client ──
+  hello: 'session:hello',
+  toast: 'toast',
+  roomState: 'room:state',
+  roomClosed: 'room:closed',
+  browseList: 'browse:list',
+  socialState: 'social:state',
+  presence: 'social:presence',
+  inviteIncoming: 'invite:incoming',
+  inviteGone: 'invite:gone',
+  matchStart: 'match:start',
+  matchSnap: 'match:snap',
+  matchOver: 'match:over',
+  chatMsg: 'chat:msg',
+} as const;
+
+// ── Social ───────────────────────────────────────────────────────────────────
+export type PresenceStatus = 'offline' | 'online' | 'lobby' | 'game';
+
+export interface FriendInfo {
+  id: string;
+  name: string;
+  status: PresenceStatus;
+}
+
+export interface FriendRequestInfo {
+  userId: string;
+  name: string;
+  at: number;
+}
+
+export interface SocialState {
+  friends: FriendInfo[];
+  incoming: FriendRequestInfo[];
+  outgoing: FriendRequestInfo[];
+}
+
+export interface InviteInfo {
+  id: string;
+  fromId: string;
+  fromName: string;
+  roomCode: string;
+  mode: GameMode;
+  mapId: MapId;
+  difficulty: Difficulty;
+  expiresAt: number;
+}
+
+export interface ToastMsg {
+  kind: 'info' | 'success' | 'error' | 'warn';
+  text: string;
+}
+
+export interface HelloPayload {
+  user: PublicUser;
+  stats: PlayerStats | null;
+}
+
+// ── Rooms ────────────────────────────────────────────────────────────────────
+export interface RoomPlayer {
+  id: string;
+  name: string;
+  guest: boolean;
+  color: number;
+  team: number;
+  ready: boolean;
+  connected: boolean;
+}
+
+export interface ChatMsg {
+  id: number;
+  fromId: string | null; // null = system
+  name: string;
+  color: number;
+  text: string;
+  at: number;
+}
+
+export interface RoomState {
+  id: string;
+  code: string;
+  hostId: string;
+  mode: GameMode;
+  mapId: MapId;
+  difficulty: Difficulty;
+  isPublic: boolean;
+  state: 'waiting' | 'playing';
+  players: RoomPlayer[];
+  chat: ChatMsg[];
+  maxPlayers: number;
+  lastResults: MatchResults | null;
+}
+
+export interface PublicRoomInfo {
+  code: string;
+  mode: GameMode;
+  mapId: MapId;
+  difficulty: Difficulty;
+  players: number;
+  maxPlayers: number;
+  hostName: string;
+}
+
+export interface RoomSettingsPatch {
+  mode?: GameMode;
+  mapId?: MapId;
+  difficulty?: Difficulty;
+  isPublic?: boolean;
+}
+
+// ── Match ────────────────────────────────────────────────────────────────────
+export interface MatchPlayerInfo {
+  id: string;
+  name: string;
+  guest: boolean;
+  color: number;
+  team: number;
+  boardId: number;
+  loadout: TowerType[];
+  troops: PackId[];
+}
+
+export interface MatchBoardInfo {
+  id: number;
+  defenders: string[];
+  maxLives: number;
+}
+
+export interface MatchStartInfo {
+  matchId: string;
+  mode: GameMode;
+  mapId: MapId;
+  difficulty: Difficulty;
+  finalWave: number | null;
+  ranked: boolean;
+  players: MatchPlayerInfo[];
+  boards: MatchBoardInfo[];
+}
+
+/** One-shot visual effects since the previous snapshot. Coordinates are in tiles. */
+export type Fx =
+  | { k: 'shot'; t: TowerType; x1: number; y1: number; x2: number; y2: number }
+  | { k: 'chain'; pts: number[] }
+  | { k: 'boom'; x: number; y: number; r: number }
+  | { k: 'pulse'; x: number; y: number; r: number }
+  | { k: 'death'; x: number; y: number; e: number; b: number }
+  | { k: 'leak'; x: number; y: number; n: number }
+  | { k: 'inc'; from: string; pack: PackId; count: number; delay: number }
+  | { k: 'build'; x: number; y: number }
+  | { k: 'sell'; x: number; y: number; v: number }
+  | { k: 'wave'; wave: number; boss: boolean };
+
+export interface TowerSnap {
+  id: number;
+  type: TowerType;
+  level: number;
+  tx: number;
+  ty: number;
+  owner: string;
+  targeting: TargetMode;
+  invested: number;
+  kills: number;
+}
+
+/** [id, typeIndex, x, y, hpFrac, slowed(0|1)] */
+export type EnemyTuple = [number, number, number, number, number, number];
+/** [id, x, y] */
+export type ShellTuple = [number, number, number];
+
+export interface BoardSnap {
+  id: number;
+  lives: number;
+  alive: boolean;
+  enemies: EnemyTuple[];
+  towersVersion: number;
+  /** only present when towersVersion changed (or on full snapshots) */
+  towers?: TowerSnap[];
+  shells: ShellTuple[];
+  /** flattened [towerId, angle*100, ...] for towers currently tracking a target */
+  aim: number[];
+  fx: Fx[];
+}
+
+export interface PlayerSnap {
+  id: string;
+  money: number;
+  income: number;
+  ready: boolean;
+  speedVote: boolean;
+  alive: boolean;
+  connected: boolean;
+  /** seconds of cooldown remaining per pack, aligned with PACK_IDS */
+  cds: number[];
+}
+
+export interface Snapshot {
+  seq: number;
+  time: number;
+  phase: MatchPhase;
+  wave: number;
+  nextWaveIn: number | null;
+  speed: number;
+  players: PlayerSnap[];
+  boards: BoardSnap[];
+}
+
+export interface PlayerMatchStats {
+  kills: number;
+  damage: number;
+  earned: number;
+  sent: number;
+  built: number;
+}
+
+export interface MatchResults {
+  matchId: string;
+  mode: GameMode;
+  mapId: MapId;
+  difficulty: Difficulty;
+  outcome: 'victory' | 'defeat' | 'versus';
+  winners: string[];
+  wave: number;
+  wavesSurvived: number;
+  durationSec: number;
+  players: (MatchPlayerInfo & { stats: PlayerMatchStats; eliminatedWave: number | null })[];
+}
+
+// ── Intents ──────────────────────────────────────────────────────────────────
+export interface PlaceTowerIntent {
+  boardId: number;
+  tx: number;
+  ty: number;
+  type: TowerType;
+}
+export interface TowerRefIntent {
+  towerId: number;
+}
+export interface SetTargetingIntent {
+  towerId: number;
+  mode: TargetMode;
+}
+export interface SendTroopsIntent {
+  packId: PackId;
+  targetPlayerId?: string;
+}
+
+// ── Typed socket maps ────────────────────────────────────────────────────────
+export interface ServerToClientEvents {
+  [EV.hello]: (p: HelloPayload) => void;
+  [EV.toast]: (t: ToastMsg) => void;
+  [EV.roomState]: (r: RoomState) => void;
+  [EV.roomClosed]: (p: { reason: string }) => void;
+  [EV.browseList]: (rooms: PublicRoomInfo[]) => void;
+  [EV.socialState]: (s: SocialState) => void;
+  [EV.presence]: (p: { userId: string; status: PresenceStatus }) => void;
+  [EV.inviteIncoming]: (i: InviteInfo) => void;
+  [EV.inviteGone]: (p: { id: string }) => void;
+  [EV.matchStart]: (m: MatchStartInfo) => void;
+  [EV.matchSnap]: (s: Snapshot) => void;
+  [EV.matchOver]: (r: MatchResults) => void;
+  [EV.chatMsg]: (m: ChatMsg) => void;
+}
+
+export interface ClientToServerEvents {
+  [EV.roomCreate]: (p: { mode: GameMode; mapId: MapId; difficulty: Difficulty; isPublic?: boolean }, ack: AckFn<{ room: RoomState }>) => void;
+  [EV.roomJoin]: (p: { code: string }, ack: AckFn<{ room: RoomState }>) => void;
+  [EV.roomLeave]: (ack?: AckFn) => void;
+  [EV.roomSettings]: (p: RoomSettingsPatch, ack?: AckFn) => void;
+  [EV.roomReady]: (p: { ready: boolean }, ack?: AckFn) => void;
+  [EV.roomTeam]: (p: { team: number }, ack?: AckFn) => void;
+  [EV.roomKick]: (p: { playerId: string }, ack?: AckFn) => void;
+  [EV.roomChat]: (p: { text: string }, ack?: AckFn) => void;
+  [EV.roomStart]: (ack: AckFn) => void;
+  [EV.browseSubscribe]: () => void;
+  [EV.browseUnsubscribe]: () => void;
+  [EV.friendRequest]: (p: { username: string }, ack: AckFn<{ autoAccepted: boolean }>) => void;
+  [EV.friendRespond]: (p: { userId: string; accept: boolean }, ack?: AckFn) => void;
+  [EV.friendCancel]: (p: { userId: string }, ack?: AckFn) => void;
+  [EV.friendRemove]: (p: { userId: string }, ack?: AckFn) => void;
+  [EV.inviteSend]: (p: { userId: string }, ack: AckFn) => void;
+  [EV.inviteRespond]: (p: { inviteId: string; accept: boolean }, ack: AckFn<{ room?: RoomState }>) => void;
+  [EV.placeTower]: (p: PlaceTowerIntent, ack?: AckFn<{ towerId?: number }>) => void;
+  [EV.upgradeTower]: (p: TowerRefIntent, ack?: AckFn) => void;
+  [EV.sellTower]: (p: TowerRefIntent, ack?: AckFn) => void;
+  [EV.setTargeting]: (p: SetTargetingIntent, ack?: AckFn) => void;
+  [EV.sendTroops]: (p: SendTroopsIntent, ack?: AckFn) => void;
+  [EV.ready]: (p: { value?: boolean }, ack?: AckFn) => void;
+  [EV.speedVote]: (p: { value?: boolean }, ack?: AckFn) => void;
+  [EV.chat]: (p: { text: string }, ack?: AckFn) => void;
+  [EV.resync]: () => void;
+}
+
+/** Room codes avoid ambiguous characters (0/O, 1/I/L). */
+export const ROOM_CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+export const ROOM_CODE_LENGTH = 6;
+
+export function normalizeRoomCode(code: unknown): string | null {
+  if (typeof code !== 'string') return null;
+  const c = code.trim().toUpperCase();
+  if (c.length !== ROOM_CODE_LENGTH) return null;
+  for (const ch of c) if (!ROOM_CODE_ALPHABET.includes(ch)) return null;
+  return c;
+}
