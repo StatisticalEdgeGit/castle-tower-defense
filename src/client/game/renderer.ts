@@ -1,11 +1,14 @@
 // Canvas 2D board renderer: cached static map layer + interpolated entities + fx.
-import { ECONOMY, PLAYER_COLORS, SEND_PACKS, TOWERS } from '../../shared/config';
+import { PLAYER_COLORS, SEND_PACKS, TOWERS } from '../../shared/config';
 import { MAPS, TILE_BUILDABLE, type GameMap } from '../../shared/maps';
 import type { Fx } from '../../shared/protocol';
-import type { TowerType } from '../../shared/types';
+import { towerCenter } from '../../shared/reach';
 import { drawEnemy, drawMapStatic, drawTower, enemyTypeFromIndex, ENEMY_COLORS } from './art';
+import { themedEnemyColor } from './themeArt';
+import { getViewTheme, type ViewTheme } from './viewTheme';
 import { game } from './gameState';
 import { interpolateEnemies, interpolateShells } from './interpolation';
+import { placementPreview, type RangePreview } from './placement';
 
 type Effect =
   | { kind: 'line'; t0: number; dur: number; x1: number; y1: number; x2: number; y2: number; style: 'arrow' | 'tracer' | 'frost' | 'venom' }
@@ -17,37 +20,104 @@ type Effect =
   | { kind: 'banner'; t0: number; dur: number; text: string; sub: string; color: string }
   | { kind: 'cone'; t0: number; dur: number; x: number; y: number; a: number; r: number; c: number };
 
-export interface PlacementCheck {
-  ok: boolean;
-  reason?: string;
-}
-
-/** Client-side mirror of the server's placement rules (for the ghost preview). */
-export function placementCheck(boardId: number, tx: number, ty: number, type: TowerType): PlacementCheck {
-  const map = game.map;
-  const latest = game.latest;
-  if (!map || !latest || !game.info) return { ok: false };
-  if (tx < 0 || ty < 0 || tx >= map.width || ty >= map.height) return { ok: false, reason: 'Out of bounds' };
-  const me = game.me();
-  const myInfo = game.myInfo();
-  if (!me || !myInfo) return { ok: false };
-  if (!me.alive) return { ok: false, reason: 'Eliminated' };
-  if (myInfo.boardId !== boardId) return { ok: false, reason: 'Not your board' };
-  if (map.tiles[ty * map.width + tx] !== TILE_BUILDABLE) return { ok: false, reason: "Can't build here" };
-  if (game.towerAt(boardId, tx, ty)) return { ok: false, reason: 'Occupied' };
-  if (type === 'mine') {
-    const mines = (game.towers.get(boardId) ?? []).filter((t) => t.owner === game.myId && t.type === 'mine').length;
-    if (mines >= ECONOMY.maxMinesPerPlayer) return { ok: false, reason: 'Max 3 mines' };
-  }
-  if (me.money < TOWERS[type].levels[0].cost) return { ok: false, reason: 'Not enough money' };
-  return { ok: true };
-}
-
 function angleLerp(a: number, b: number, t: number): number {
   let d = b - a;
   while (d > Math.PI) d -= Math.PI * 2;
   while (d < -Math.PI) d += Math.PI * 2;
   return a + d * t;
+}
+
+function fillTiles(ctx: CanvasRenderingContext2D, indices: number[], width: number, s: number, color: string): void {
+  if (!indices.length) return;
+  ctx.fillStyle = color;
+  for (const i of indices) {
+    const tx = i % width;
+    const ty = (i / width) | 0;
+    ctx.fillRect(tx * s, ty * s, s, s);
+  }
+}
+
+/** Range circle from the square's centre, plus which road squares that circle really covers. */
+function drawReachUnder(ctx: CanvasRenderingContext2D, map: GameMap, s: number, p: RangePreview, editing: boolean): void {
+  ctx.save();
+  const { x: cx, y: cy } = towerCenter(p.tx, p.ty);
+  const reached = new Set(p.coverage?.reached ?? []);
+  if (p.maxCoverage) fillTiles(ctx, p.maxCoverage.reached.filter((i) => !reached.has(i)), map.width, s, 'rgba(255, 210, 80, 0.2)');
+  if (p.coverage) {
+    fillTiles(ctx, p.coverage.grazed, map.width, s, 'rgba(255, 64, 64, 0.34)');
+    fillTiles(ctx, p.coverage.reached, map.width, s, 'rgba(70, 220, 110, 0.4)');
+  }
+  const px = cx * s;
+  const py = cy * s;
+  if (p.range > 0) {
+    const miss = p.reaches === false;
+    ctx.beginPath();
+    ctx.arc(px, py, p.range * s, 0, Math.PI * 2);
+    ctx.fillStyle = !p.ok ? 'rgba(255,60,60,0.08)' : miss ? 'rgba(255,170,40,0.1)' : 'rgba(80,255,140,0.1)';
+    ctx.fill();
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = !p.ok ? 'rgba(255,90,90,0.95)' : miss ? 'rgba(255,186,60,0.95)' : 'rgba(120,255,160,0.95)';
+    ctx.stroke();
+  }
+  if (p.minRange > 0) {
+    ctx.beginPath();
+    ctx.arc(px, py, p.minRange * s, 0, Math.PI * 2);
+    ctx.setLineDash([5, 4]);
+    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = 'rgba(255,90,90,0.95)';
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+  if (p.maxRange > p.range + 0.05) {
+    ctx.beginPath();
+    ctx.arc(px, py, p.maxRange * s, 0, Math.PI * 2);
+    ctx.setLineDash([3, 5]);
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = 'rgba(255, 210, 80, 0.8)';
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+  if (editing) {
+    ctx.fillStyle = !p.ok ? 'rgba(255,60,60,0.38)' : p.reaches === false ? 'rgba(255,180,40,0.36)' : 'rgba(80,255,120,0.3)';
+    ctx.fillRect(p.tx * s, p.ty * s, s, s);
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(p.tx * s + 1, p.ty * s + 1, s - 2, s - 2);
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.arc(px, py, Math.max(2, s * 0.08), 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+function drawReachLine(ctx: CanvasRenderingContext2D, map: GameMap, s: number, p: RangePreview, editing: boolean): void {
+  if (!p.coverage) return;
+  ctx.save();
+  ctx.lineCap = 'round';
+  if (editing) {
+    ctx.strokeStyle = 'rgba(255, 70, 70, 0.55)';
+    ctx.lineWidth = Math.max(2, s * 0.18);
+    ctx.beginPath();
+    for (const path of map.paths) {
+      const pts = path.points;
+      if (pts.length < 2) continue;
+      ctx.moveTo(pts[0].x * s, pts[0].y * s);
+      for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x * s, pts[i].y * s);
+    }
+    ctx.stroke();
+  }
+  if (p.coverage.spans.length) {
+    ctx.strokeStyle = 'rgba(90, 255, 150, 0.95)';
+    ctx.lineWidth = Math.max(3, s * 0.26);
+    ctx.beginPath();
+    for (const sp of p.coverage.spans) {
+      ctx.moveTo(sp.x1 * s, sp.y1 * s);
+      ctx.lineTo(sp.x2 * s, sp.y2 * s);
+    }
+    ctx.stroke();
+  }
+  ctx.restore();
 }
 
 export class BoardRenderer {
@@ -67,6 +137,7 @@ export class BoardRenderer {
   private angles = new Map<number, number>();
   private recoil = new Map<number, number>();
   private lastNow = 0;
+  private themeSeen: ViewTheme | null = null;
 
   constructor(
     readonly canvas: HTMLCanvasElement,
@@ -156,7 +227,9 @@ export class BoardRenderer {
       case 'death': {
         if (mini) return;
         const type = enemyTypeFromIndex(fx.e);
-        this.burst(fx.x, fx.y, type === 'warlord' ? 26 : 7, [ENEMY_COLORS[type], '#ffffff', '#333'], type === 'warlord' ? 3 : 1.6, t, 420);
+        const skin = getViewTheme();
+        const paint = skin === 'classic' ? ENEMY_COLORS[type] : themedEnemyColor(skin, type);
+        this.burst(fx.x, fx.y, type === 'warlord' ? 26 : 7, [paint, '#ffffff', '#333'], type === 'warlord' ? 3 : 1.6, t, 420);
         const me = game.myInfo();
         if (fx.b > 0 && me && me.boardId === this.boardId) {
           const amount = fx.b >= 10 ? Math.round(fx.b) : Math.round(fx.b * 10) / 10;
@@ -236,6 +309,11 @@ export class BoardRenderer {
   render(now: number): void {
     const map = this.map;
     if (!map || this.cssW === 0) return;
+    const skin = getViewTheme();
+    if (this.themeSeen !== skin) {
+      this.themeSeen = skin;
+      this.staticLayer = null;
+    }
     if (!this.staticLayer) this.buildStatic();
     this.layout();
     const ctx = this.ctx;
@@ -288,18 +366,9 @@ export class BoardRenderer {
       ctx.stroke();
     }
 
-    // selected tower range (under everything)
-    const selected = isMain && ui.selectedTower !== null ? towers.find((t) => t.id === ui.selectedTower) : undefined;
-    if (selected && (TOWERS[selected.type].attacks || TOWERS[selected.type].support)) {
-      const r = TOWERS[selected.type].levels[selected.level - 1].range * s;
-      ctx.fillStyle = 'rgba(255,255,255,0.08)';
-      ctx.strokeStyle = 'rgba(255,255,255,0.5)';
-      ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      ctx.arc((selected.tx + 0.5) * s, (selected.ty + 0.5) * s, r, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.stroke();
-    }
+    const preview = isMain ? placementPreview(this.boardId, ui) : null;
+    const editing = !!(ui.buildType || ui.moveTowerId !== null);
+    if (preview && (editing || preview.kind !== 'none')) drawReachUnder(ctx, map, s, preview, editing);
 
     // towers
     const buffed = new Set(bB.buffed);
@@ -316,14 +385,16 @@ export class BoardRenderer {
         ctx.arc((t.tx + 0.5) * s, (t.ty + 0.5) * s, s * 0.5, 0, Math.PI * 2);
         ctx.fill();
       }
+      const sliding = preview?.movingId === t.id && (preview.tx !== t.tx || preview.ty !== t.ty);
       drawTower(ctx, t.type, (t.tx + 0.5) * s, (t.ty + 0.5) * s, s, {
         level: t.level,
         angle: a,
         ownerColor: playerColor(t.owner),
         time,
         recoil,
+        alpha: sliding ? 0.35 : 1,
       });
-      if (selected && selected.id === t.id) {
+      if (!editing && ui.selectedTower === t.id) {
         ctx.strokeStyle = '#ffffff';
         ctx.lineWidth = 2;
         ctx.setLineDash([4, 3]);
@@ -400,26 +471,32 @@ export class BoardRenderer {
       ctx.fill();
     }
 
-    // placement ghost
-    if (isMain && ui.buildType && ui.hover && ui.viewBoard === this.boardId) {
-      const { tx, ty } = ui.hover;
-      const chk = placementCheck(this.boardId, tx, ty, ui.buildType);
-      const lvl = TOWERS[ui.buildType].levels[0];
-      const cx = (tx + 0.5) * s;
-      const cy = (ty + 0.5) * s;
-      ctx.fillStyle = chk.ok ? 'rgba(80,255,120,0.18)' : 'rgba(255,60,60,0.22)';
-      ctx.fillRect(tx * s, ty * s, s, s);
-      if (lvl.range > 0) {
-        ctx.fillStyle = chk.ok ? 'rgba(80,255,120,0.10)' : 'rgba(255,60,60,0.10)';
-        ctx.strokeStyle = chk.ok ? 'rgba(120,255,150,0.8)' : 'rgba(255,90,90,0.8)';
-        ctx.lineWidth = 1.5;
-        ctx.beginPath();
-        ctx.arc(cx, cy, lvl.range * s, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.stroke();
+    if (editing && preview?.kind === 'attack') drawReachLine(ctx, map, s, preview, true);
+    if (preview?.kind === 'buff') {
+      const c = towerCenter(preview.tx, preview.ty);
+      const rr = preview.range * preview.range;
+      for (const t of towers) {
+        if (!TOWERS[t.type].attacks) continue;
+        const dx = t.tx + 0.5 - c.x;
+        const dy = t.ty + 0.5 - c.y;
+        if (dx * dx + dy * dy > rr + 1e-6) continue;
+        ctx.strokeStyle = 'rgba(255, 210, 80, 0.95)';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(t.tx * s + 1, t.ty * s + 1, s - 2, s - 2);
       }
-      drawTower(ctx, ui.buildType, cx, cy, s, { level: 1, angle: -Math.PI / 2, ownerColor: playerColor(game.myId), alpha: chk.ok ? 0.75 : 0.4, time });
-    } else if (isMain && ui.hover && !ui.buildType) {
+    }
+
+    // placement ghost — centred on the same point the range circle uses
+    if (editing && preview && (preview.movingId === null || preview.tx !== game.findTower(preview.movingId)?.tx || preview.ty !== game.findTower(preview.movingId)?.ty)) {
+      const { x: gx, y: gy } = towerCenter(preview.tx, preview.ty);
+      drawTower(ctx, preview.type, gx * s, gy * s, s, {
+        level: preview.level,
+        angle: -Math.PI / 2,
+        ownerColor: playerColor(game.myId),
+        alpha: preview.ok ? 0.8 : 0.4,
+        time,
+      });
+    } else if (isMain && ui.hover && !ui.buildType && ui.moveTowerId === null) {
       const tw = game.towerAt(this.boardId, ui.hover.tx, ui.hover.ty);
       if (tw) {
         ctx.strokeStyle = 'rgba(255,255,255,0.6)';
@@ -620,8 +697,8 @@ export function drawMapThumb(canvas: HTMLCanvasElement, mapId: keyof typeof MAPS
   const s = (cssW / map.width) * dpr;
   canvas.width = Math.round(map.width * s);
   canvas.height = Math.round(map.height * s);
-  canvas.style.width = `${cssW}px`;
-  canvas.style.height = `${(cssW * map.height) / map.width}px`;
+  canvas.style.width = '100%';
+  canvas.style.height = 'auto';
   const ctx = canvas.getContext('2d')!;
   drawMapStatic(ctx, map, s, cssW > 160);
 }

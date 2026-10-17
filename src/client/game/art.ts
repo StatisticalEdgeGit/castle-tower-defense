@@ -5,6 +5,8 @@ import { TILE_PATH } from '../../shared/maps';
 import { mulberry32 } from '../../shared/rng';
 import type { EnemyType, TowerType } from '../../shared/types';
 import { ENEMY_TYPES } from '../../shared/types';
+import { drawThemeBase, drawThemeProp, drawThemedEnemyBody, paintThemedGround, worldColors } from './themeArt';
+import { getViewTheme } from './viewTheme';
 
 export const TOWER_COLORS: Record<TowerType, { base: string; dark: string; accent: string }> = {
   archer: { base: '#a8763e', dark: '#6b4a26', accent: '#f1d18a' },
@@ -77,13 +79,25 @@ export function drawTower(ctx: CanvasRenderingContext2D, type: TowerType, x: num
     ctx.arc(0, 0, s * 0.43, 0, Math.PI * 2);
     ctx.stroke();
   }
-  // stone base
+  // stone base, lit from the upper left so every tower reads as a solid piece
   const b = s * 0.36;
-  ctx.fillStyle = '#3b4252';
+  const stone = ctx.createLinearGradient(-b, -b, b, b);
+  stone.addColorStop(0, '#727b8e');
+  stone.addColorStop(0.5, '#3b4252');
+  stone.addColorStop(1, '#1e2430');
+  ctx.fillStyle = stone;
   roundRect(ctx, -b, -b, b * 2, b * 2, s * 0.1);
   ctx.fill();
-  ctx.fillStyle = c.dark;
+  const pad = ctx.createLinearGradient(-b, -b, b * 0.4, b);
+  pad.addColorStop(0, c.accent);
+  pad.addColorStop(0.38, c.base);
+  pad.addColorStop(1, c.dark);
+  ctx.fillStyle = pad;
   roundRect(ctx, -b * 0.86, -b * 0.86, b * 1.72, b * 1.72, s * 0.08);
+  ctx.fill();
+  ctx.fillStyle = 'rgba(255,255,255,0.28)';
+  ctx.beginPath();
+  ctx.ellipse(-b * 0.22, -b * 0.4, b * 0.34, b * 0.12, -0.6, 0, Math.PI * 2);
   ctx.fill();
 
   const rec = (o.recoil ?? 0) * s * 0.06;
@@ -414,6 +428,10 @@ export function drawEnemy(
   ctx.beginPath();
   ctx.ellipse(0, r * 0.75, r * 0.9, r * 0.35, 0, 0, Math.PI * 2);
   ctx.fill();
+  const theme = getViewTheme();
+  if (theme !== 'classic') {
+    drawThemedEnemyBody(ctx, theme, type, r, dir);
+  } else {
   ctx.lineWidth = Math.max(1, s * 0.035);
   ctx.strokeStyle = 'rgba(0,0,0,0.55)';
   switch (type) {
@@ -574,6 +592,7 @@ export function drawEnemy(
       break;
     }
   }
+  }
   if (poisoned) {
     ctx.fillStyle = 'rgba(120,230,80,0.35)';
     ctx.beginPath();
@@ -620,6 +639,10 @@ export function drawEnemy(
       ctx.stroke();
     }
   }
+  ctx.fillStyle = 'rgba(255,255,255,0.28)';
+  ctx.beginPath();
+  ctx.ellipse(-r * 0.28, -r * 0.34, r * 0.32, r * 0.16, -0.7, 0, Math.PI * 2);
+  ctx.fill();
   ctx.restore();
   if (showHp && hpFrac < 0.999) {
     const w = Math.max(r * 2, s * 0.5);
@@ -655,7 +678,8 @@ function eyes(ctx: CanvasRenderingContext2D, dir: number, r: number, color = '#f
 export function drawMapStatic(ctx: CanvasRenderingContext2D, map: GameMap, s: number, detail = true) {
   const W = map.width;
   const H = map.height;
-  const th = map.theme;
+  const view = getViewTheme();
+  const th = view === 'classic' ? map.theme : worldColors(view);
   const rng = mulberry32(map.width * 131 + map.name.length * 7);
   // grass
   for (let y = 0; y < H; y++) {
@@ -663,12 +687,34 @@ export function drawMapStatic(ctx: CanvasRenderingContext2D, map: GameMap, s: nu
       ctx.fillStyle = (x + y) % 2 === 0 ? th.grassA : th.grassB;
       ctx.fillRect(x * s, y * s, s + 0.5, s + 0.5);
       if (detail) {
-        const n = 2 + Math.floor(rng() * 3);
-        for (let i = 0; i < n; i++) {
-          ctx.fillStyle = rng() < 0.5 ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.07)';
-          const gx = x * s + rng() * s;
-          const gy = y * s + rng() * s;
-          ctx.fillRect(gx, gy, Math.max(1, s * 0.06), Math.max(1, s * 0.12));
+        const shade = ctx.createLinearGradient(x * s, y * s, x * s, (y + 1) * s);
+        shade.addColorStop(0, 'rgba(255,255,255,0.08)');
+        shade.addColorStop(0.5, 'rgba(255,255,255,0)');
+        shade.addColorStop(1, 'rgba(0,0,0,0.14)');
+        ctx.fillStyle = shade;
+        ctx.fillRect(x * s, y * s, s + 0.5, s + 0.5);
+        if (view === 'classic') {
+        ctx.strokeStyle = 'rgba(210,255,170,0.28)';
+        ctx.lineWidth = Math.max(1, s * 0.04);
+        ctx.lineCap = 'round';
+        for (let i = 0; i < 3; i++) {
+          const gx = x * s + (0.16 + rng() * 0.68) * s;
+          const gy = y * s + (0.28 + rng() * 0.58) * s;
+          const hgt = s * (0.1 + rng() * 0.16);
+          const lean = (rng() - 0.5) * s * 0.18;
+          ctx.beginPath();
+          ctx.moveTo(gx, gy);
+          ctx.quadraticCurveTo(gx + lean * 0.4, gy - hgt * 0.55, gx + lean, gy - hgt);
+          ctx.stroke();
+        }
+        if (rng() < 0.16) {
+          ctx.fillStyle = rng() < 0.5 ? 'rgba(255,220,90,0.75)' : 'rgba(255,255,255,0.55)';
+          ctx.beginPath();
+          ctx.arc(x * s + rng() * s, y * s + rng() * s, Math.max(0.8, s * 0.04), 0, Math.PI * 2);
+          ctx.fill();
+        }
+        } else {
+          paintThemedGround(ctx, view, x, y, s, rng);
         }
       }
     }
@@ -678,6 +724,11 @@ export function drawMapStatic(ctx: CanvasRenderingContext2D, map: GameMap, s: nu
   for (const d of map.decorations) {
     if (d.kind !== 'water') continue;
     ctx.fillStyle = th.water;
+    ctx.fillRect(d.x * s, d.y * s, s + 0.5, s + 0.5);
+    const waterShade = ctx.createLinearGradient(d.x * s, d.y * s, d.x * s, (d.y + 1) * s);
+    waterShade.addColorStop(0, 'rgba(190,230,255,0.22)');
+    waterShade.addColorStop(1, 'rgba(0,20,40,0.28)');
+    ctx.fillStyle = waterShade;
     ctx.fillRect(d.x * s, d.y * s, s + 0.5, s + 0.5);
     if (detail) {
       ctx.strokeStyle = 'rgba(255,255,255,0.18)';
@@ -689,7 +740,7 @@ export function drawMapStatic(ctx: CanvasRenderingContext2D, map: GameMap, s: nu
       ctx.stroke();
     }
     // shoreline on edges that touch land
-    ctx.fillStyle = 'rgba(230,220,170,0.35)';
+    ctx.fillStyle = view === 'robots' ? 'rgba(103,232,249,0.35)' : view === 'mushrooms' ? 'rgba(255,214,170,0.45)' : 'rgba(230,220,170,0.35)';
     const e = Math.max(1, s * 0.07);
     if (d.y > 0 && !water.has((d.y - 1) * W + d.x)) ctx.fillRect(d.x * s, d.y * s, s, e);
     if (d.y < H - 1 && !water.has((d.y + 1) * W + d.x)) ctx.fillRect(d.x * s, (d.y + 1) * s - e, s, e);
@@ -710,6 +761,7 @@ export function drawMapStatic(ctx: CanvasRenderingContext2D, map: GameMap, s: nu
   };
   strokePath(s * 0.98, th.pathEdge);
   strokePath(s * 0.8, th.path);
+  strokePath(s * 0.22, 'rgba(255,255,255,0.16)');
   if (detail) {
     for (let y = 0; y < H; y++) {
       for (let x = 0; x < W; x++) {
@@ -727,6 +779,10 @@ export function drawMapStatic(ctx: CanvasRenderingContext2D, map: GameMap, s: nu
   for (const d of map.decorations) {
     const cx = d.x * s + s / 2;
     const cy = d.y * s + s / 2;
+    if (view !== 'classic' && (d.kind === 'tree' || d.kind === 'rock')) {
+      drawThemeProp(ctx, view, d.kind, cx, cy, s);
+      continue;
+    }
     if (d.kind === 'tree') {
       ctx.fillStyle = 'rgba(0,0,0,0.25)';
       ctx.beginPath();
@@ -747,6 +803,10 @@ export function drawMapStatic(ctx: CanvasRenderingContext2D, map: GameMap, s: nu
         ctx.arc(cx + bx * s, cy + by * s, br * s, 0, Math.PI * 2);
         ctx.fill();
       });
+      ctx.fillStyle = 'rgba(255,255,255,0.2)';
+      ctx.beginPath();
+      ctx.arc(cx - s * 0.08, cy - s * 0.16, s * 0.08, 0, Math.PI * 2);
+      ctx.fill();
     } else if (d.kind === 'rock') {
       ctx.fillStyle = 'rgba(0,0,0,0.25)';
       ctx.beginPath();
@@ -772,49 +832,72 @@ export function drawMapStatic(ctx: CanvasRenderingContext2D, map: GameMap, s: nu
   }
   // entries (dark portals) and exits (castle gate)
   for (const e of map.entries) {
+    const inner = view === 'robots' ? 'rgba(0,40,60,0.9)' : view === 'mushrooms' ? 'rgba(50,0,40,0.9)' : 'rgba(20,0,30,0.85)';
+    const outer = view === 'robots' ? 'rgba(34,211,238,0)' : view === 'mushrooms' ? 'rgba(244,114,182,0)' : 'rgba(60,0,90,0)';
     const g = ctx.createRadialGradient(e.x * s, e.y * s, 0, e.x * s, e.y * s, s * 0.7);
-    g.addColorStop(0, 'rgba(20,0,30,0.85)');
-    g.addColorStop(1, 'rgba(60,0,90,0)');
+    g.addColorStop(0, inner);
+    g.addColorStop(1, outer);
     ctx.fillStyle = g;
     ctx.beginPath();
     ctx.arc(e.x * s, e.y * s, s * 0.7, 0, Math.PI * 2);
     ctx.fill();
   }
-  for (const e of map.exits) drawCastle(ctx, e.x * s, e.y * s, s);
+  for (const e of map.exits) {
+    if (view === 'classic') drawCastle(ctx, e.x * s, e.y * s, s);
+    else drawThemeBase(ctx, view, e.x * s, e.y * s, s);
+  }
+  const vg = ctx.createRadialGradient((W * s) / 2, (H * s) / 2, Math.min(W, H) * s * 0.25, (W * s) / 2, (H * s) / 2, Math.max(W, H) * s * 0.72);
+  vg.addColorStop(0, 'rgba(0,0,0,0)');
+  vg.addColorStop(1, 'rgba(0,0,0,0.32)');
+  ctx.fillStyle = vg;
+  ctx.fillRect(0, 0, W * s, H * s);
 }
 
 export function drawCastle(ctx: CanvasRenderingContext2D, x: number, y: number, s: number) {
   ctx.save();
   ctx.translate(x, y);
-  ctx.fillStyle = 'rgba(0,0,0,0.3)';
+  ctx.fillStyle = 'rgba(0,0,0,0.35)';
   ctx.beginPath();
-  ctx.ellipse(s * 0.05, s * 0.36, s * 0.5, s * 0.15, 0, 0, Math.PI * 2);
+  ctx.ellipse(s * 0.04, s * 0.4, s * 0.55, s * 0.16, 0, 0, Math.PI * 2);
   ctx.fill();
-  ctx.fillStyle = '#b8b2a6';
-  ctx.fillRect(-s * 0.42, -s * 0.2, s * 0.84, s * 0.55);
-  for (let i = 0; i < 4; i++) ctx.fillRect(-s * 0.42 + i * s * 0.24, -s * 0.32, s * 0.12, s * 0.14);
-  ctx.fillStyle = '#8c8578';
-  ctx.fillRect(-s * 0.42, s * 0.25, s * 0.84, s * 0.1);
-  ctx.fillStyle = '#3a2a1a';
+  const wall = ctx.createLinearGradient(-s * 0.42, -s * 0.32, s * 0.42, s * 0.36);
+  wall.addColorStop(0, '#efe8da');
+  wall.addColorStop(0.45, '#c4bbaa');
+  wall.addColorStop(1, '#8d8476');
+  ctx.fillStyle = wall;
+  ctx.fillRect(-s * 0.42, -s * 0.18, s * 0.84, s * 0.54);
+  ctx.fillStyle = '#9c9486';
+  for (let i = 0; i < 4; i++) {
+    ctx.fillStyle = '#b7ae9e';
+    ctx.fillRect(-s * 0.42 + i * s * 0.24, -s * 0.36, s * 0.14, s * 0.2);
+    ctx.fillStyle = '#6f685c';
+    ctx.fillRect(-s * 0.4 + i * s * 0.24, -s * 0.34, s * 0.04, s * 0.16);
+  }
+  ctx.fillStyle = '#6d675c';
+  ctx.fillRect(-s * 0.42, s * 0.26, s * 0.84, s * 0.1);
+  ctx.fillStyle = 'rgba(80,120,180,0.55)';
+  ctx.fillRect(-s * 0.28, -s * 0.02, s * 0.1, s * 0.12);
+  ctx.fillRect(s * 0.16, -s * 0.02, s * 0.1, s * 0.12);
+  ctx.fillStyle = '#2a1c12';
   ctx.beginPath();
-  ctx.moveTo(-s * 0.13, s * 0.35);
-  ctx.lineTo(-s * 0.13, s * 0.05);
-  ctx.arc(0, s * 0.05, s * 0.13, Math.PI, 0);
-  ctx.lineTo(s * 0.13, s * 0.35);
+  ctx.moveTo(-s * 0.12, s * 0.36);
+  ctx.lineTo(-s * 0.12, s * 0.06);
+  ctx.arc(0, s * 0.06, s * 0.12, Math.PI, 0);
+  ctx.lineTo(s * 0.12, s * 0.36);
   ctx.closePath();
   ctx.fill();
-  ctx.fillStyle = '#e04848';
+  ctx.fillStyle = '#e23b3b';
   ctx.beginPath();
-  ctx.moveTo(0, -s * 0.32);
-  ctx.lineTo(0, -s * 0.62);
-  ctx.lineTo(s * 0.22, -s * 0.54);
-  ctx.lineTo(0, -s * 0.46);
+  ctx.moveTo(s * 0.02, -s * 0.36);
+  ctx.lineTo(s * 0.02, -s * 0.68);
+  ctx.lineTo(s * 0.28, -s * 0.56);
+  ctx.lineTo(s * 0.02, -s * 0.5);
   ctx.fill();
-  ctx.strokeStyle = '#555';
-  ctx.lineWidth = Math.max(1, s * 0.03);
+  ctx.strokeStyle = '#4a4036';
+  ctx.lineWidth = Math.max(1, s * 0.035);
   ctx.beginPath();
-  ctx.moveTo(0, -s * 0.32);
-  ctx.lineTo(0, -s * 0.62);
+  ctx.moveTo(s * 0.02, -s * 0.36);
+  ctx.lineTo(s * 0.02, -s * 0.68);
   ctx.stroke();
   ctx.restore();
 }

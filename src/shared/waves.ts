@@ -1,7 +1,7 @@
 // Deterministic (seeded) AI wave generator. Same (wave, seed) → same spawn groups on every
 // board, which is what keeps versus boards fair. Counts here are for ONE defender; the sim
 // multiplies counts by defenderScale(k) and divides spacing by it.
-import { WAVES } from './config';
+import { defenderScale, WAVES } from './config';
 import { hashSeed, mulberry32 } from './rng';
 import type { EnemyType, SpawnGroup } from './types';
 
@@ -70,8 +70,20 @@ export function generateWave(wave: number, seed: number = WAVES.seed): SpawnGrou
     chosen.forEach((t, i) => shares.push({ type: t, points: (budget * raw[i]) / sum }));
   }
 
-  let delay = 0;
+  // Healers are an escort, not the wave. Extra budget they would have spent becomes grunts.
+  const capped: { type: EnemyType; points: number }[] = [];
+  const healerCapPoints = WAVES.maxHealers * WAVES.points.healer;
   for (const s of shares) {
+    if (s.type === 'healer' && s.points > healerCapPoints) {
+      capped.push({ type: 'healer', points: healerCapPoints });
+      capped.push({ type: 'grunt', points: s.points - healerCapPoints });
+    } else {
+      capped.push(s);
+    }
+  }
+
+  let delay = 0;
+  for (const s of capped) {
     const pts = WAVES.points[s.type];
     const count = Math.max(1, Math.round(s.points / pts));
     const spacing = +(WAVES.spacing[s.type] * tighten).toFixed(3);
@@ -89,4 +101,12 @@ export function generateWave(wave: number, seed: number = WAVES.seed): SpawnGrou
 /** Total number of units in a wave (one defender). */
 export function waveUnitCount(groups: SpawnGroup[]): number {
   return groups.reduce((a, g) => a + g.count, 0);
+}
+
+/**
+ * How many of a solo spawn group actually appear on a board with `defenders` players.
+ * Matches the sim: count × defenderScale, rounded, and never below 1.
+ */
+export function scaledGroupCount(count: number, defenders: number): number {
+  return Math.max(1, Math.round(count * defenderScale(defenders)));
 }

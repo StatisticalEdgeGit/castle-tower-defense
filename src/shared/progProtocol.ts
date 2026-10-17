@@ -222,3 +222,8 @@ export interface EmoteEvent {
   playerId: string;
   emoteId: string;
 }
+
+export interface FaceEvent {
+  playerId: string;
+  icon: string;
+}

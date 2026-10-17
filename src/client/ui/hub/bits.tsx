@@ -28,9 +28,17 @@ export function emoteDef(id: string) {
 
 export function ProfileIcon({ icon, level, size = 'md' }: { icon: string; level?: number; size?: 'sm' | 'md' | 'lg' }) {
   const d = iconDef(icon);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => setFailed(false), [icon]);
   return (
     <div className={`picon ${size === 'md' ? '' : size}`} style={{ background: `radial-gradient(circle at 30% 25%, ${d.bg}, #0b1120 140%)` }} title={d.name}>
-      {d.emoji}
+      <span className="picon-clip">
+        {failed ? (
+          d.emoji
+        ) : (
+          <img className="picon-img" src={`/portraits/${d.id}.jpg`} alt="" draggable={false} onError={() => setFailed(true)} />
+        )}
+      </span>
       {level !== undefined && size !== 'sm' && <span className="lvl-badge">{level}</span>}
     </div>
   );

@@ -530,6 +530,7 @@ export class GameSim implements SimContext {
       beamTime: 0,
       kills: 0,
       damage: 0,
+      freeMove: true,
     };
     board.towers.push(t);
     board.tileTower.set(ty * board.map.width + tx, t);
@@ -577,6 +578,34 @@ export class GameSim implements SimContext {
     board.towersVersion++;
     board.fx.push({ k: 'sell', x: t.x, y: t.y, v: refund });
     return { ok: true, refund };
+  }
+
+  /** Slide an owned tower onto another buildable square. Allowed once, and it costs nothing. */
+  moveTower(pid: string, towerId: number, tx: number, ty: number): Result {
+    const o = this.ownedTower(pid, towerId);
+    if (typeof o === 'string') return fail(o);
+    const { t, board } = o;
+    if (!t.freeMove) return fail('This tower was already moved');
+    if (!board.alive) return fail('Board eliminated');
+    if (t.tx === tx && t.ty === ty) return fail('Already there');
+    const key = (x: number, y: number) => y * board.map.width + x;
+    board.tileTower.delete(key(t.tx, t.ty));
+    const err = placementError(board, tx, ty);
+    if (err) {
+      board.tileTower.set(key(t.tx, t.ty), t);
+      return fail(err);
+    }
+    t.tx = tx;
+    t.ty = ty;
+    t.x = tx + 0.5;
+    t.y = ty + 0.5;
+    t.freeMove = false;
+    t.targetId = -1;
+    t.beamTarget = -1;
+    board.tileTower.set(key(tx, ty), t);
+    board.towersVersion++;
+    board.fx.push({ k: 'build', x: t.x, y: t.y });
+    return { ok: true };
   }
 
   setTargeting(pid: string, towerId: number, mode: TargetMode): Result {
@@ -686,6 +715,8 @@ export class GameSim implements SimContext {
       targeting: t.targeting,
       invested: t.invested,
       kills: t.kills,
+      freeMove: t.freeMove,
+      mult: t.mult,
     }));
   }
 

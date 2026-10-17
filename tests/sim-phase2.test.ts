@@ -260,6 +260,6 @@ describe('card levels', () => {
     updateTowers(sim, sim.boards[0], 0.05);
     expect(1000 - g.hp).toBeCloseTo(12, 5);
     place(sim, 'mine', 20, 2);
-    expect(sim.mineIncome(p)).toBeCloseTo(25 * 1.2);
+    expect(sim.mineIncome(p)).toBeCloseTo((TOWERS.mine.levels[0].income ?? 0) * 1.2);
   });
 });

@@ -14,6 +14,7 @@ import {
   EQUAL_LEVEL,
   ICONS,
   STARTER_EMOTES,
+  STARTER_ICONS,
 } from '../../shared/progression';
 import { EV, type MatchResults } from '../../shared/protocol';
 import { CLASSIC_PACKS, CLASSIC_TOWERS, PACK_IDS, TOWER_TYPES, type MapId, type TowerType } from '../../shared/types';
@@ -380,6 +381,27 @@ export class ProgressionService {
     return { ok: true };
   }
 
+  /** Persist a portrait (accounts) and show it to everyone in the current match. */
+  setFace(user: Identity, icon: unknown): Result {
+    if (typeof icon !== 'string' || !ICONS.some((i) => i.id === icon)) return fail('Unknown icon');
+    const room = this.ctx.rooms.roomOf(user.id);
+    if (!room?.match || room.match.over) return fail('You can change your face during a match');
+    if (user.guest) {
+      if (!STARTER_ICONS.includes(icon)) return fail("You don't own that icon");
+    } else {
+      const saved = this.mutate(user.id, (pr) => {
+        if (!pr.icons.includes(icon)) return fail("You don't own that icon");
+        pr.icon = icon;
+        return { ok: true };
+      });
+      if (!saved.ok) return saved;
+    }
+    const mine = room.match.info.players.find((p) => p.id === user.id);
+    if (mine) mine.icon = icon;
+    this.ctx.io.to(roomChannel(room.id)).emit(EV.matchFace, { playerId: user.id, icon });
+    return { ok: true };
+  }
+
   // ── leaderboards ─────────────────────────────────────────────────────────
   leaderboard(user: Identity, q: Partial<LeaderboardQuery>): Result<LeaderboardView> {
     const board = q?.board;
@@ -562,6 +584,7 @@ export class ProgressionService {
       return { ok: true };
     });
     on<{ emoteId: string }>(EV.emote, (p) => this.emote(user, p.emoteId));
+    on<{ icon: string }>(EV.setFace, (p) => this.setFace(user, p.icon));
 
     // initial state for this tab
     if (!user.guest) {

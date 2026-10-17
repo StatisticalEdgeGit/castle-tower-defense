@@ -10,6 +10,7 @@ import {
   waveHpMultiplier,
 } from '../../shared/config';
 import type { Difficulty, EnemyType, SpawnGroup } from '../../shared/types';
+import { scaledGroupCount } from '../../shared/waves';
 
 export interface Escalation {
   /** escalation starts after this wave */
@@ -38,7 +39,7 @@ export function scaleWaveForBoard(groups: SpawnGroup[], k: number): ScaledGroup[
   const ds = defenderScale(k);
   return groups.map((g) => {
     const exact = g.count * ds;
-    const count = Math.max(1, Math.round(exact));
+    const count = scaledGroupCount(g.count, k);
     return { type: g.type, count, spacing: g.spacing / ds, delay: g.delay, hpComp: exact / count };
   });
 }

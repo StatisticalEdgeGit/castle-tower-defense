@@ -195,7 +195,8 @@ export const TOWERS: Record<TowerType, TowerDef> = {
     attacks: true,
     levels: [
       { cost: 100, damage: 10, rate: 2.0, range: 3.0 },
-      { cost: 90, damage: 16, rate: 2.4, range: 3.3 },
+      // L2 clears knight armor (8). L1 sits on the 20% damage floor against them.
+      { cost: 90, damage: 18, rate: 2.4, range: 3.3 },
       { cost: 200, damage: 28, rate: 3.0, range: 3.6 },
     ],
   },
@@ -209,8 +210,9 @@ export const TOWERS: Record<TowerType, TowerDef> = {
     homing: true,
     levels: [
       { cost: 200, damage: 30, rate: 0.7, range: 2.8, splash: 1.0 },
-      { cost: 180, damage: 45, rate: 0.8, range: 2.9, splash: 1.2 },
-      { cost: 350, damage: 80, rate: 0.9, range: 3.0, splash: 1.4 },
+      // L2 is the group-clear step: the blast grows more than the raw shot.
+      { cost: 180, damage: 50, rate: 0.85, range: 2.9, splash: 1.45 },
+      { cost: 350, damage: 85, rate: 0.95, range: 3.0, splash: 1.65 },
     ],
   },
   frost: {
@@ -234,7 +236,8 @@ export const TOWERS: Record<TowerType, TowerDef> = {
     ignoresArmor: true,
     levels: [
       { cost: 300, damage: 90, rate: 0.45, range: 7 },
-      { cost: 250, damage: 150, rate: 0.45, range: 7 },
+      // L2 picks up rate and a little reach. L3 is still the damage spike.
+      { cost: 250, damage: 150, rate: 0.52, range: 7.2 },
       { cost: 500, damage: 280, rate: 0.55, range: 7.5 },
     ],
   },
@@ -259,9 +262,10 @@ export const TOWERS: Record<TowerType, TowerDef> = {
     hotkey: '6',
     attacks: false,
     levels: [
-      { cost: 250, damage: 0, rate: 0, range: 0, income: 25 },
-      { cost: 250, damage: 0, rate: 0, range: 0, income: 60 },
-      { cost: 400, damage: 0, rate: 0, range: 0, income: 110 },
+      // Each upgrade pays back faster than opening another level-1 mine.
+      { cost: 250, damage: 0, rate: 0, range: 0, income: 42 },
+      { cost: 220, damage: 0, rate: 0, range: 0, income: 100 },
+      { cost: 380, damage: 0, rate: 0, range: 0, income: 175 },
     ],
   },
   flame: {
@@ -362,7 +366,7 @@ export interface EnemyDef {
   slowResist?: number;
   /** healer: heals others within this radius (tiles) */
   healRadius?: number;
-  /** healer: fraction of target max HP healed per second */
+  /** healer: fraction of target max HP healed per second (does not stack) */
   healPerSec?: number;
   boss?: boolean;
   /** splitter: spawns this many of `splitInto` on death */
@@ -393,7 +397,7 @@ export const ENEMIES: Record<EnemyType, EnemyDef> = {
     lives: 1,
     radius: 0.26,
     healRadius: 1.5,
-    healPerSec: 0.04,
+    healPerSec: 0.02,
   },
   warlord: {
     type: 'warlord',
@@ -452,6 +456,8 @@ export const WAVES = {
   unlock: { grunt: 1, runner: 3, swarm: 5, brute: 7, knight: 12, healer: 15, warlord: 10, splitter: 9999, splitling: 9999, shield: 9999 } as Record<EnemyType, number>,
   /** seconds between units in a group (divided by defenderScale) */
   spacing: { grunt: 0.9, runner: 0.7, swarm: 0.22, knight: 1.2, brute: 1.6, healer: 1.4, warlord: 5, splitter: 1.2, splitling: 0.3, shield: 1.3 } as Record<EnemyType, number>,
+  /** max healers in one AI wave for a single defender; leftover budget becomes grunts */
+  maxHealers: 4,
   bossEvery: 10,
 };
 
@@ -466,12 +472,16 @@ export interface SendPackDef {
   cooldown: number;
 }
 
+/**
+ * Cheap packs return more income per gold (the eco buy). Heavy packs keep
+ * their bodies and return less income per gold (the threat buy).
+ */
 export const SEND_PACKS: Record<PackId, SendPackDef> = {
-  grunts: { id: 'grunts', name: '6 Grunts', units: [{ type: 'grunt', count: 6 }], cost: 60, income: 6, unlockWave: 1, cooldown: 3 },
-  runners: { id: 'runners', name: '5 Runners', units: [{ type: 'runner', count: 5 }], cost: 90, income: 9, unlockWave: 3, cooldown: 4 },
-  swarm: { id: 'swarm', name: '15 Swarmlings', units: [{ type: 'swarm', count: 15 }], cost: 100, income: 10, unlockWave: 5, cooldown: 5 },
-  brutes: { id: 'brutes', name: '2 Brutes', units: [{ type: 'brute', count: 2 }], cost: 200, income: 22, unlockWave: 7, cooldown: 6 },
-  knights: { id: 'knights', name: '3 Knights', units: [{ type: 'knight', count: 3 }], cost: 250, income: 28, unlockWave: 10, cooldown: 7 },
+  grunts: { id: 'grunts', name: '6 Grunts', units: [{ type: 'grunt', count: 6 }], cost: 60, income: 8, unlockWave: 1, cooldown: 3 },
+  runners: { id: 'runners', name: '5 Runners', units: [{ type: 'runner', count: 5 }], cost: 90, income: 10, unlockWave: 3, cooldown: 4 },
+  swarm: { id: 'swarm', name: '15 Swarmlings', units: [{ type: 'swarm', count: 15 }], cost: 100, income: 12, unlockWave: 5, cooldown: 5 },
+  brutes: { id: 'brutes', name: '2 Brutes', units: [{ type: 'brute', count: 2 }], cost: 200, income: 18, unlockWave: 7, cooldown: 6 },
+  knights: { id: 'knights', name: '3 Knights', units: [{ type: 'knight', count: 3 }], cost: 250, income: 20, unlockWave: 10, cooldown: 7 },
   healers: {
     id: 'healers',
     name: '2 Healers + 4 Grunts',
@@ -480,12 +490,12 @@ export const SEND_PACKS: Record<PackId, SendPackDef> = {
       { type: 'grunt', count: 4 },
     ],
     cost: 300,
-    income: 34,
+    income: 22,
     unlockWave: 12,
     cooldown: 8,
   },
-  warlord: { id: 'warlord', name: '1 Warlord', units: [{ type: 'warlord', count: 1 }], cost: 1000, income: 120, unlockWave: 18, cooldown: 20 },
-  splitters: { id: 'splitters', name: '3 Splitters', units: [{ type: 'splitter', count: 3 }], cost: 220, income: 24, unlockWave: 8, cooldown: 6 },
+  warlord: { id: 'warlord', name: '1 Warlord', units: [{ type: 'warlord', count: 1 }], cost: 1000, income: 70, unlockWave: 18, cooldown: 20 },
+  splitters: { id: 'splitters', name: '3 Splitters', units: [{ type: 'splitter', count: 3 }], cost: 220, income: 22, unlockWave: 8, cooldown: 6 },
   shields: {
     id: 'shields',
     name: '2 Shieldbearers + 5 Grunts',
@@ -494,7 +504,7 @@ export const SEND_PACKS: Record<PackId, SendPackDef> = {
       { type: 'grunt', count: 5 },
     ],
     cost: 280,
-    income: 31,
+    income: 24,
     unlockWave: 11,
     cooldown: 8,
   },

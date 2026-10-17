@@ -89,6 +89,7 @@ export class Match {
       vsBot: players.some((p) => p.bot),
       players,
       boards: this.sim.boards.map((b) => ({ id: b.id, defenders: b.defenders.slice(), maxLives: b.maxLives })),
+      waveSeed: rules.waveSeed,
     };
   }
 
@@ -183,6 +184,11 @@ export class Match {
   sellTower(uid: string, p: { towerId?: unknown }): Result {
     if (!p || typeof p.towerId !== 'number') return { ok: false, error: 'Bad request' };
     return this.sim.sellTower(uid, p.towerId);
+  }
+
+  moveTower(uid: string, p: { towerId?: unknown; tx?: unknown; ty?: unknown }): Result {
+    if (!p || typeof p.towerId !== 'number' || typeof p.tx !== 'number' || typeof p.ty !== 'number') return { ok: false, error: 'Bad request' };
+    return this.sim.moveTower(uid, p.towerId, p.tx, p.ty);
   }
 
   setTargeting(uid: string, p: { towerId?: unknown; mode?: unknown }): Result {

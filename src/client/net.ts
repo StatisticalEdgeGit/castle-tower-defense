@@ -4,6 +4,7 @@ import { io, type Socket } from 'socket.io-client';
 import { EV, normalizeRoomCode, type Ack, type ClientToServerEvents, type ServerToClientEvents } from '../shared/protocol';
 import type { PlayerStats, PublicUser } from '../shared/types';
 import { game } from './game/gameState';
+import { bindViewTheme } from './game/viewTheme';
 import { store, toast } from './store';
 
 // ── token storage ──────────────────────────────────────────────────────────
@@ -146,11 +147,15 @@ function wire(s: GameSocket): void {
       const t = store.get().token;
       session.clearAll(t);
       disconnectSocket();
+      bindViewTheme(null);
       store.reset({ view: 'auth', pendingJoin: store.get().pendingJoin });
       toast('warn', 'Your session expired — please log in again');
     }
   });
-  s.on(EV.hello, ({ user, stats }) => store.set({ user, stats }));
+  s.on(EV.hello, ({ user, stats }) => {
+    bindViewTheme(user.id);
+    store.set({ user, stats });
+  });
   s.on(EV.toast, (t) => toast(t.kind, t.text));
   s.on(EV.roomState, (room) => {
     const st = store.get();
@@ -204,6 +209,7 @@ function wire(s: GameSocket): void {
   s.on(EV.partyState, (party) => store.set({ party }));
   s.on(EV.partyInvited, (inv) => store.set((st) => ({ partyInvites: [...st.partyInvites.filter((i) => i.partyId !== inv.partyId), inv] })));
   s.on(EV.matchEmote, (e) => game.addEmote(e.playerId, e.emoteId));
+  s.on(EV.matchFace, (e) => game.setPlayerIcon(e.playerId, e.icon));
 }
 
 export function connectSocket(token: string): void {
@@ -246,6 +252,7 @@ export async function boot(): Promise<void> {
 
 export function onLoggedIn(token: string, user: PublicUser, stats: PlayerStats | null, persist = true): void {
   if (persist) session.save(token);
+  bindViewTheme(user.id);
   store.set({ token, user, stats, view: 'menu' });
   connectSocket(token);
 }
@@ -254,6 +261,7 @@ export async function logout(): Promise<void> {
   const token = store.get().token;
   if (token) await api.logout(token);
   session.clearAll(token);
+  bindViewTheme(null);
   disconnectSocket();
   game.clear();
   store.reset({ view: 'auth' });
@@ -262,6 +270,7 @@ export async function logout(): Promise<void> {
 /** Leave this tab's identity without invalidating it for other tabs. */
 export function switchAccount(): void {
   session.clearTab();
+  bindViewTheme(null);
   disconnectSocket();
   game.clear();
   store.reset({ view: 'auth' });

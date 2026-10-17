@@ -131,14 +131,18 @@ export function CreateGame() {
         {(Object.keys(MODE_INFO) as GameMode[]).map((m) => (
           <button key={m} className={`mode-card ${mode === m ? 'active' : ''}`} onClick={() => setMode(m)}>
             <div className="mode-icon">{MODE_ICON[m]}</div>
-            <h4>{MODE_INFO[m].label}</h4>
-            <p>{MODE_INFO[m].blurb}</p>
-            <p style={{ marginTop: 4 }} className="dim">
+            <h4>
+              <span className="wide-only">{MODE_INFO[m].label}</span>
+              <span className="narrow-only">{MODE_INFO[m].short}</span>
+            </h4>
+            <p className="wide-only">{MODE_INFO[m].blurb}</p>
+            <p style={{ marginTop: 4 }} className="wide-only dim">
               {MODE_INFO[m].minPlayers}–{MODE_INFO[m].maxPlayers} players
             </p>
           </button>
         ))}
       </div>
+      <p className="mode-blurb narrow-only">{MODE_INFO[mode].blurb}</p>
       <div className="section-label">Map</div>
       <div className="map-grid">
         {MAP_IDS.map((id) => (

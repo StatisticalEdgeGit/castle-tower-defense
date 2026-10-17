@@ -2,6 +2,7 @@
 import type {
   DropOpenResult,
   EmoteEvent,
+  FaceEvent,
   Granted,
   LeaderboardQuery,
   LeaderboardView,
@@ -50,6 +51,7 @@ export const EV = {
   inviteSend: 'invite:send',
   inviteRespond: 'invite:respond',
   placeTower: 'game:placeTower',
+  moveTower: 'game:moveTower',
   upgradeTower: 'game:upgradeTower',
   sellTower: 'game:sellTower',
   setTargeting: 'game:setTargeting',
@@ -59,6 +61,7 @@ export const EV = {
   chat: 'game:chat',
   resync: 'game:resync',
   emote: 'game:emote',
+  setFace: 'game:setFace',
   roomQueueRanked: 'room:queueRanked',
   progGet: 'prog:get',
   progClaimRoad: 'prog:claimRoad',
@@ -102,6 +105,7 @@ export const EV = {
   partyState: 'party:state',
   partyInvited: 'party:invited',
   matchEmote: 'match:emote',
+  matchFace: 'match:face',
 } as const;
 
 // ── Social ───────────────────────────────────────────────────────────────────
@@ -243,6 +247,8 @@ export interface MatchStartInfo {
   vsBot: boolean;
   players: MatchPlayerInfo[];
   boards: MatchBoardInfo[];
+  /** Seed for the AI wave generator, so the client can preview the same spawns as the sim. */
+  waveSeed: number;
 }
 
 /** One-shot visual effects since the previous snapshot. Coordinates are in tiles. */
@@ -270,6 +276,10 @@ export interface TowerSnap {
   targeting: TargetMode;
   invested: number;
   kills: number;
+  /** false after the owner has used the one free reposition */
+  freeMove: boolean;
+  /** Card-level stat multiplier already applied by the sim. 1 means a level-1 card. */
+  mult: number;
 }
 
 /** [id, typeIndex, x, y, hpFrac, slowed(0|1)] */
@@ -354,6 +364,11 @@ export interface PlaceTowerIntent {
 export interface TowerRefIntent {
   towerId: number;
 }
+export interface MoveTowerIntent {
+  towerId: number;
+  tx: number;
+  ty: number;
+}
 export interface SetTargetingIntent {
   towerId: number;
   mode: TargetMode;
@@ -385,6 +400,7 @@ export interface ServerToClientEvents {
   [EV.partyState]: (p: PartyView | null) => void;
   [EV.partyInvited]: (i: PartyInvite) => void;
   [EV.matchEmote]: (e: EmoteEvent) => void;
+  [EV.matchFace]: (e: FaceEvent) => void;
 }
 
 export interface ClientToServerEvents {
@@ -409,6 +425,7 @@ export interface ClientToServerEvents {
   [EV.inviteSend]: (p: { userId: string }, ack: AckFn) => void;
   [EV.inviteRespond]: (p: { inviteId: string; accept: boolean }, ack: AckFn<{ room?: RoomState }>) => void;
   [EV.placeTower]: (p: PlaceTowerIntent, ack?: AckFn<{ towerId?: number }>) => void;
+  [EV.moveTower]: (p: MoveTowerIntent, ack?: AckFn) => void;
   [EV.upgradeTower]: (p: TowerRefIntent, ack?: AckFn) => void;
   [EV.sellTower]: (p: TowerRefIntent, ack?: AckFn) => void;
   [EV.setTargeting]: (p: SetTargetingIntent, ack?: AckFn) => void;
@@ -418,6 +435,7 @@ export interface ClientToServerEvents {
   [EV.chat]: (p: { text: string }, ack?: AckFn) => void;
   [EV.resync]: () => void;
   [EV.emote]: (p: { emoteId: string }, ack?: AckFn) => void;
+  [EV.setFace]: (p: { icon: string }, ack?: AckFn) => void;
   [EV.roomQueueRanked]: (ack?: AckFn) => void;
   [EV.progGet]: (ack: AckFn<{ profile: ProfileView }>) => void;
   [EV.progClaimRoad]: (p: { nodeId: number }, ack: AckFn<{ granted: Granted[] }>) => void;

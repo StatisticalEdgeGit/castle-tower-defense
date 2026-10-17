@@ -3,7 +3,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { lanAddresses, startServer } from './app';
+import { toString as qrToString } from 'qrcode';
+import { lanAddresses, phoneJoinUrl, startServer } from './app';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const port = Number(process.env.PORT) || 4777;
@@ -32,7 +33,20 @@ async function main() {
     for (const ip of lan) console.log(`  LAN dev client:    http://${ip}:5180`);
   }
   console.log(`  Data:    ${path.relative(process.cwd(), dbPath) || dbPath}`);
-  console.log(`  Dev tools: ${devTools ? 'ON (press \` in the app)' : 'off (set DEV_TOOLS=1)'}\n${line}\n`);
+  console.log(`  Dev tools: ${devTools ? 'ON (press \` in the app)' : 'off (set DEV_TOOLS=1)'}\n${line}`);
+
+  const joinUrl = phoneJoinUrl(lan, srv.port, !devMode && hasClient);
+  if (joinUrl) {
+    console.log('\n  Scan with a phone on the same Wi-Fi:\n');
+    try {
+      console.log(await qrToString(joinUrl, { type: 'terminal', small: true, errorCorrectionLevel: 'M', margin: 1 }));
+    } catch (err) {
+      console.error('  Could not draw a QR code.', err);
+    }
+    console.log(`  ${joinUrl}\n`);
+  } else {
+    console.log('\n  No LAN address found, so phones on Wi-Fi cannot join this PC.\n');
+  }
 
   let stopping = false;
   const stop = async (sig: string) => {

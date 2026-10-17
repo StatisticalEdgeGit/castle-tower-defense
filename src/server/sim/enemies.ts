@@ -1,6 +1,7 @@
 // Enemy creation, movement along paths, healing, shields, damage-over-time, damage and
 // slow rules.
-import { ARMOR_MIN_FRACTION, ENEMIES } from '../../shared/config';
+import { ENEMIES } from '../../shared/config';
+import { mitigatedDamage } from '../../shared/combatMath';
 import { pointOnPath } from '../../shared/maps';
 import { ENEMY_TYPES, type EnemyType } from '../../shared/types';
 import type { Board, Enemy, QueuedSpawn, Tower } from './board';
@@ -93,7 +94,7 @@ export function createSplitChildren(nextId: () => number, parent: Enemy): Enemy[
  */
 export function damageEnemy(e: Enemy, raw: number, ignoreArmor = false): number {
   if (!e.alive || raw <= 0) return 0;
-  let dmg = ignoreArmor ? raw : Math.max(raw - e.armor, raw * ARMOR_MIN_FRACTION);
+  let dmg = mitigatedDamage(raw, e.armor, ignoreArmor);
   let dealt = 0;
   if (e.shield > 0) {
     const absorbed = Math.min(e.shield, dmg);
@@ -169,17 +170,23 @@ export function applyDots(board: Board, dt: number, onDot: (tower: Tower | null,
   }
 }
 
-/** Healers restore healPerSec·maxHp per second to OTHER enemies within healRadius. */
+/**
+ * Healers restore healPerSec·maxHp per second to nearby non-healers.
+ * A target is healed by at most one healer, so a clump cannot outheal focused fire.
+ */
 export function applyHealers(board: Board, dt: number): void {
   const enemies = board.enemies;
+  const healed = new Set<Enemy>();
   for (const h of enemies) {
     if (!h.alive || !h.def.healRadius || !h.def.healPerSec) continue;
     const r2 = h.def.healRadius * h.def.healRadius;
     for (const o of enemies) {
-      if (o === h || !o.alive || o.hp >= o.maxHp) continue;
+      if (o === h || !o.alive || o.hp >= o.maxHp || o.type === 'healer' || healed.has(o)) continue;
       const dx = o.x - h.x;
       const dy = o.y - h.y;
-      if (dx * dx + dy * dy <= r2) o.hp = Math.min(o.maxHp, o.hp + o.maxHp * h.def.healPerSec * dt);
+      if (dx * dx + dy * dy > r2) continue;
+      o.hp = Math.min(o.maxHp, o.hp + o.maxHp * h.def.healPerSec * dt);
+      healed.add(o);
     }
   }
 }

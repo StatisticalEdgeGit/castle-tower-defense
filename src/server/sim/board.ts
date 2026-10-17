@@ -69,6 +69,8 @@ export interface Tower {
   beamTime: number;
   kills: number;
   damage: number;
+  /** owner may slide this tower onto another square once, for free */
+  freeMove: boolean;
 }
 
 export interface Shell {

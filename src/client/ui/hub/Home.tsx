@@ -1,5 +1,6 @@
 // The home hub: top HUD (icon, level/XP, currencies, trophies) + tab content + bottom nav.
 import { logout, switchAccount } from '../../net';
+import { ThemePicker } from '../components';
 import { store, useStore, type HubTab } from '../../store';
 import { BattleTab } from './BattleTab';
 import { CurrencyChip, NavBadge, ProfileIcon } from './bits';
@@ -65,8 +66,10 @@ export function HudBar() {
           🛠 Dev
         </button>
       )}
+      <ThemePicker />
       <button className="btn btn-sm btn-ghost" title="Use a different account in this tab (other tabs stay logged in)" onClick={switchAccount}>
-        Switch account
+        <span className="wide-only">Switch account</span>
+        <span className="narrow-only">Switch</span>
       </button>
       <button className="btn btn-sm" onClick={() => void logout()}>
         Log out

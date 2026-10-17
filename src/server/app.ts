@@ -70,6 +70,20 @@ export function lanAddresses(): string[] {
   return scored.sort((x, y) => y.score - x.score).map((s) => s.ip);
 }
 
+/** Vite dev server port. Phones use this when the game server is not serving the built client. */
+export const DEV_CLIENT_PORT = 5180;
+
+/**
+ * URL a phone on the same Wi-Fi should open.
+ * When this process serves the built client, that is `serverPort`.
+ * In dev mode the phone opens the Vite server instead.
+ */
+export function phoneJoinUrl(lan: readonly string[], serverPort: number, clientServedHere: boolean): string | null {
+  const ip = lan[0];
+  if (!ip) return null;
+  return `http://${ip}:${clientServedHere ? serverPort : DEV_CLIENT_PORT}`;
+}
+
 function bearer(req: express.Request): string | null {
   const h = req.headers.authorization;
   if (h && h.startsWith('Bearer ')) return h.slice(7);
@@ -81,6 +95,8 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
   const auth = new AuthService(db);
   const app = express();
   app.disable('x-powered-by');
+  // Fly (and any other reverse proxy) terminates HTTPS and forwards the real client.
+  if (process.env.TRUST_PROXY === '1') app.set('trust proxy', 1);
   app.use(express.json({ limit: '64kb' }));
   const httpServer = http.createServer(app);
   const io: IO = new Server<ClientToServerEvents, ServerToClientEvents, Record<string, never>, SocketData>(httpServer, {
@@ -232,6 +248,7 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
         reply(ack, fn(match, (p ?? {}) as P));
       };
     sock.on(EV.placeTower, guard(intent((m, p) => m.placeTower(user.id, p))));
+    sock.on(EV.moveTower, guard(intent((m, p) => m.moveTower(user.id, p))));
     sock.on(EV.upgradeTower, guard(intent((m, p) => m.upgradeTower(user.id, p))));
     sock.on(EV.sellTower, guard(intent((m, p) => m.sellTower(user.id, p))));
     sock.on(EV.setTargeting, guard(intent((m, p) => m.setTargeting(user.id, p))));

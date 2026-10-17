@@ -6,6 +6,7 @@ import { EV, type ChatMsg, type InviteInfo, type PresenceStatus } from '../../sh
 import type { EnemyType, MapId, TowerType } from '../../shared/types';
 import { drawEnemy, drawTower } from '../game/art';
 import { drawMapThumb } from '../game/renderer';
+import { setViewTheme, useViewTheme, type ViewTheme } from '../game/viewTheme';
 import { request } from '../net';
 import { store, toast, useStore } from '../store';
 
@@ -28,6 +29,7 @@ export function TowerIcon({ type, size = 40, level = 1 }: { type: TowerType; siz
 
 export function EnemyIcon({ type, size = 22 }: { type: EnemyType; size?: number }) {
   const ref = useRef<HTMLCanvasElement>(null);
+  const theme = useViewTheme();
   useEffect(() => {
     const c = ref.current;
     if (!c) return;
@@ -39,16 +41,38 @@ export function EnemyIcon({ type, size = 22 }: { type: EnemyType; size?: number 
     ctx.clearRect(0, 0, size, size);
     const scale = type === 'warlord' ? size * 0.95 : type === 'swarm' ? size * 2.2 : size * 1.5;
     drawEnemy(ctx, type, size / 2, size / 2 + (type === 'warlord' ? size * 0.1 : 0), scale, 0, 1, 0, 0, false);
-  }, [type, size]);
+  }, [type, size, theme]);
   return <canvas ref={ref} style={{ width: size, height: size, display: 'block' }} />;
 }
 
 export function MapThumb({ mapId, width }: { mapId: MapId; width: number }) {
   const ref = useRef<HTMLCanvasElement>(null);
+  const theme = useViewTheme();
   useEffect(() => {
     if (ref.current) drawMapThumb(ref.current, mapId, width);
-  }, [mapId, width]);
+  }, [mapId, width, theme]);
   return <canvas ref={ref} />;
+}
+
+const THEME_CHOICES: { id: ViewTheme; icon: string; label: string }[] = [
+  { id: 'classic', icon: '🏰', label: 'Classic' },
+  { id: 'robots', icon: '🤖', label: 'Robots' },
+  { id: 'mushrooms', icon: '🍄', label: 'Mushrooms' },
+];
+
+/** Switches this player's art. Other players, and other tabs, keep their own look. */
+export function ThemePicker() {
+  const theme = useViewTheme();
+  return (
+    <div className="seg theme-picker" role="group" aria-label="View theme" title="Changes only what you see. Other players keep their own look.">
+      {THEME_CHOICES.map((c) => (
+        <button key={c.id} type="button" className={theme === c.id ? 'active' : ''} aria-pressed={theme === c.id} onClick={() => setViewTheme(c.id)}>
+          {c.icon}
+          <span className="wide-only"> {c.label}</span>
+        </button>
+      ))}
+    </div>
+  );
 }
 
 export function MapBadge({ mapId }: { mapId: MapId }) {

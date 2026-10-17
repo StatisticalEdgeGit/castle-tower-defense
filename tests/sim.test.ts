@@ -188,19 +188,22 @@ describe('damage rules', () => {
     }
   });
 
-  it('healers heal others nearby by 4% max HP per second, not themselves', () => {
+  it('healers heal nearby non-healers by 2% max HP per second, and healing does not stack', () => {
     const sim = makeSim('coop', 1);
     const b = sim.boards[0];
     const h = enemyAtXY(sim, b, 'healer', 10, 10, 90);
     h.hp = 45;
+    const other = enemyAtXY(sim, b, 'healer', 10.5, 10, 90);
+    other.hp = 40;
     const near = enemyAtXY(sim, b, 'grunt', 11, 10, 100);
     near.hp = 50;
-    const far = enemyAtXY(sim, b, 'grunt', 12, 10, 100);
+    const far = enemyAtXY(sim, b, 'grunt', 14, 10, 100);
     far.hp = 50;
     for (let i = 0; i < 20; i++) applyHealers(b, 0.05);
-    expect(near.hp).toBeCloseTo(54, 5);
+    expect(near.hp).toBeCloseTo(52, 5);
     expect(far.hp).toBe(50);
     expect(h.hp).toBe(45);
+    expect(other.hp).toBe(40);
   });
 });
 
@@ -301,7 +304,7 @@ describe('economy & scaling', () => {
     const other = sim.players.get('p0')!.money;
     sim.nextWaveIn = 0.01;
     sim.step();
-    expect(p.money - before).toBe(25);
+    expect(p.money - before).toBe(TOWERS.mine.levels[0].income);
     expect(sim.players.get('p0')!.money).toBe(other);
   });
 });
@@ -353,6 +356,32 @@ describe('tower placement validation', () => {
     const lim = makeSim('coop', 1);
     lim.players.get('p0')!.loadout = ['archer'];
     expect(lim.placeTower('p0', 0, ok.tx, ok.ty, 'cannon')).toMatchObject({ ok: false });
+  });
+
+  it('lets the owner move a tower once for free, then frees the old square', () => {
+    const sim = makeSim('coop', 2);
+    const map = MAPS.greenfield;
+    const a = firstTile(map, TILE_BUILDABLE);
+    const b = firstTile(map, TILE_BUILDABLE, (x, y) => x !== a.tx || y !== a.ty);
+    const placed = sim.placeTower('p0', 0, a.tx, a.ty, 'archer');
+    if (!placed.ok) throw new Error(placed.error);
+    const money = sim.players.get('p0')!.money;
+    expect(sim.moveTower('p1', placed.towerId, b.tx, b.ty)).toMatchObject({ ok: false, error: 'Only the owner can do that' });
+    expect(sim.moveTower('p0', placed.towerId, a.tx, a.ty)).toMatchObject({ ok: false, error: 'Already there' });
+    expect(sim.moveTower('p0', placed.towerId, b.tx, b.ty).ok).toBe(true);
+    const t = sim.getTower(placed.towerId)!;
+    expect(t.tx).toBe(b.tx);
+    expect(t.ty).toBe(b.ty);
+    expect(t.x).toBeCloseTo(b.tx + 0.5);
+    expect(t.y).toBeCloseTo(b.ty + 0.5);
+    expect(t.freeMove).toBe(false);
+    expect(sim.players.get('p0')!.money).toBe(money);
+    expect(sim.boards[0].tileTower.has(a.ty * map.width + a.tx)).toBe(false);
+    expect(sim.boards[0].tileTower.get(b.ty * map.width + b.tx)?.id).toBe(t.id);
+    const c = firstTile(map, TILE_BUILDABLE, (x, y) => (x !== a.tx || y !== a.ty) && (x !== b.tx || y !== b.ty));
+    expect(sim.moveTower('p0', placed.towerId, c.tx, c.ty)).toMatchObject({ ok: false, error: 'This tower was already moved' });
+    expect(sim.placeTower('p0', 0, a.tx, a.ty, 'archer').ok).toBe(true);
+    expect(sim.snapshot(null, false).boards[0].towers?.find((tw) => tw.id === t.id)?.freeMove).toBe(false);
   });
 });
 
@@ -432,6 +461,10 @@ describe('waves & match flow', () => {
     expect(typesAt(10).has('warlord')).toBe(true);
     expect(typesAt(12).has('knight')).toBe(true);
     expect(typesAt(15).has('healer')).toBe(true);
+    for (let w = 1; w <= 40; w++) {
+      const healers = generateWave(w).filter((g) => g.type === 'healer').reduce((n, g) => n + g.count, 0);
+      expect(healers).toBeLessThanOrEqual(4);
+    }
     for (let w = 1; w < 12; w++) expect(typesAt(w).has('knight')).toBe(false);
     for (let w = 1; w < 10; w++) expect(typesAt(w).has('warlord')).toBe(false);
     expect(bossCount(20)).toBe(2);

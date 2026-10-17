@@ -365,11 +365,7 @@ export function BattleTab() {
           {effective === 'friendly' && (
             <>
               <CreateGame />
-              <div className="row" style={{ gap: 14, alignItems: 'stretch', flexWrap: 'wrap' }}>
-                <div className="grow" style={{ minWidth: 280 }}>
-                  <JoinByCode />
-                </div>
-              </div>
+              <JoinByCode />
               <BrowseGames />
             </>
           )}

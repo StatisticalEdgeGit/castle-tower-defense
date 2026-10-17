@@ -7,7 +7,8 @@
 // affordable, otherwise save for it. War Totems go where they buff the most dps.
 // Sending (versus): an eco-vs-defence heuristic — only send money the defence doesn't
 // need, prefer high income-per-cost packs early and raw threat later, and hold back
-// while our own board is leaking.
+// while our own board is leaking. One gold mine is bought once a few towers are
+// already shooting; mines and war totems are upgraded like attacking towers.
 import { SEND_PACKS, TOWERS } from '../../shared/config';
 import { pointOnPath, TILE_BUILDABLE, type GameMap } from '../../shared/maps';
 import { arenaForTrophies, BOT_LEVEL_BY_ARENA, towerPool, troopPool } from '../../shared/progression';
@@ -78,9 +79,17 @@ export function levelDps(type: TowerType, level: number): number {
     case 'tesla':
       dps *= 1 + 0.6 * ((l.chains ?? 1) - 1) * 0.5;
       break;
-    case 'frost':
-      dps = 22 + level * 10; // value of the slow, not the damage
+    case 'cannon':
+      // L1 splash is the baseline. Later levels are worth more because the blast grows.
+      dps *= 1 + Math.max(0, (l.splash ?? 0) - 1) * 0.8;
       break;
+    case 'frost': {
+      // The slow is the tower. L2 splash and L3 pulse are what make the upgrades worth buying.
+      const slowVal = 28 + (l.slow ?? 0) * 20;
+      const multi = l.pulse ? 2.15 : l.splash ? 1.45 : 1;
+      dps = slowVal * multi;
+      break;
+    }
     case 'flame':
       dps = dps * 1.8 + (l.burnDps ?? 0) * 1.5;
       break;
@@ -179,7 +188,8 @@ export class Bot {
     // prepare for boss waves (every 10th) with long-range / ramping damage
     if ((type === 'sniper' || type === 'prism') && w % 10 >= 6) f *= 1.5;
     if ((type === 'cannon' || type === 'flame' || type === 'mortar') && w >= 5) f *= 1.15;
-    if (type === 'archer' && w >= 12) f *= 0.85; // knights' armor
+    // Unupgraded archers sit on the armor floor once knights arrive. Upgraded ones punch through.
+    if (type === 'archer' && w >= 12) f *= level <= 1 ? 0.55 : 1.1;
     return levelDps(type, level) * f * (1 - Math.exp(-cov / 6));
   }
 
@@ -204,7 +214,11 @@ export class Bot {
 
     // build candidates
     for (const type of p.loadout) {
-      if (type === 'mine') continue;
+      if (type === 'mine') {
+        const mineAction = this.mineAction(board.id, mine, sim.wave);
+        if (mineAction) actions.push(mineAction);
+        continue;
+      }
       const def = TOWERS[type];
       if (type === 'frost' && !frostAllowed) continue;
       if (type === 'tesla' && sim.wave < 8) continue;
@@ -243,7 +257,13 @@ export class Bot {
 
     // upgrade candidates
     for (const t of mine) {
-      if (t.level >= 3 || !TOWERS[t.type].attacks) continue;
+      if (t.level >= 3) continue;
+      if (t.type === 'mine' || t.type === 'totem') {
+        const support = t.type === 'mine' ? this.mineUpgrade(t) : this.totemUpgrade(t, mine);
+        if (support) actions.push(support);
+        continue;
+      }
+      if (!TOWERS[t.type].attacks) continue;
       const def = TOWERS[t.type];
       const covNow = coverageMap(map, def.levels[t.level - 1].range, def.levels[t.level - 1].minRange ?? 0)[t.ty * map.width + t.tx];
       const covNext = coverageMap(map, def.levels[t.level].range, def.levels[t.level].minRange ?? 0)[t.ty * map.width + t.tx];
@@ -265,6 +285,71 @@ export class Bot {
       if (cheap) return cheap.run();
     }
     return false;
+  }
+
+  /**
+   * One gold mine, and only after several towers are already shooting. It sits on
+   * the buildable tile that covers the least path, so it does not steal a shot.
+   */
+  private mineAction(boardId: number, owned: Tower[], wave: number): { value: number; cost: number; run: () => boolean; key: string } | null {
+    if (owned.some((t) => t.type === 'mine')) return null;
+    const attackers = owned.filter((t) => TOWERS[t.type].attacks).length;
+    if (attackers < 4 || wave < 4 || this.leakCooldown > 0) return null;
+    const sim = this.sim;
+    const board = sim.boards[boardId];
+    const map = board.map;
+    const cov = coverageMap(map, 2.5, 0);
+    let bestI = -1;
+    let bestC = Infinity;
+    for (let i = 0; i < map.tiles.length; i++) {
+      if (map.tiles[i] !== TILE_BUILDABLE || board.tileTower.has(i)) continue;
+      if (cov[i] < bestC) {
+        bestC = cov[i];
+        bestI = i;
+      }
+    }
+    if (bestI < 0) return null;
+    const lvl = TOWERS.mine.levels[0];
+    const income = (lvl.income ?? 0) * (sim.players.get(this.pid)?.towerMult.mine ?? 1);
+    // One step above a typical extra tower, so the mine is bought once defence
+    // exists and then the bot goes back to shooting towers. Income still has to
+    // be positive or a broken mine definition would look like a good buy.
+    const value = income > 0 ? 0.28 : 0;
+    const tx = bestI % map.width;
+    const ty = Math.floor(bestI / map.width);
+    return { value, cost: lvl.cost, key: `m:${bestI}`, run: () => sim.placeTower(this.pid, boardId, tx, ty, 'mine').ok };
+  }
+
+  /** Upgrade a mine once the match is long enough for the extra income to matter. */
+  private mineUpgrade(t: Tower): { value: number; cost: number; run: () => boolean; key: string } | null {
+    if (this.leakCooldown > 0) return null;
+    if (this.sim.wave < (t.level === 1 ? 6 : 10)) return null;
+    const levels = TOWERS.mine.levels;
+    const cost = levels[t.level].cost;
+    const gain = ((levels[t.level].income ?? 0) - (levels[t.level - 1].income ?? 0)) * t.mult;
+    if (!(gain > 0) || !(cost > 0)) return null;
+    // Below the value of a strong new tower, so a mine upgrade happens when the
+    // board is filling rather than instead of the next turret.
+    return { value: 0.2, cost, key: `um:${t.id}`, run: () => this.sim.upgradeTower(this.pid, t.id).ok };
+  }
+
+  /** Upgrade a totem when the wider buff actually reaches attackers. */
+  private totemUpgrade(t: Tower, owned: Tower[]): { value: number; cost: number; run: () => boolean; key: string } | null {
+    const nxt = TOWERS.totem.levels[t.level];
+    const cost = nxt.cost;
+    const r2 = (nxt.buffRadius ?? 0) ** 2;
+    let score = 0;
+    for (const a of owned) {
+      if (!TOWERS[a.type].attacks) continue;
+      const dx = a.x - t.x;
+      const dy = a.y - t.y;
+      if (dx * dx + dy * dy > r2) continue;
+      const dmgGain = Math.max(0, (nxt.buffDmg ?? 0) - a.buffDmg);
+      const rateGain = Math.max(0, (nxt.buffRate ?? 0) - a.buffRate);
+      score += levelDps(a.type, a.level) * a.mult * (dmgGain + rateGain);
+    }
+    if (!(score > 0) || !(cost > 0)) return null;
+    return { value: (score * 0.9) / cost, cost, key: `ut:${t.id}`, run: () => this.sim.upgradeTower(this.pid, t.id).ok };
   }
 
   private totemAction(boardId: number, mine: Tower[]): { value: number; cost: number; run: () => boolean; key: string } | null {

@@ -21,6 +21,10 @@ export interface UiState {
   sendTarget: string | null;
   viewBoard: number;
   hover: { tx: number; ty: number } | null;
+  /** square locked in for confirm; the pointer edits it while it is on the map */
+  staged: { tx: number; ty: number } | null;
+  /** tower being slid to a new square (one free move) */
+  moveTowerId: number | null;
 }
 
 class GameClient {
@@ -33,7 +37,7 @@ class GameClient {
   aims = new Map<number, number>();
   fxEvents: FxEvent[] = [];
   private fxCounter = 0;
-  ui: UiState = { buildType: null, selectedTower: null, sendTarget: null, viewBoard: 0, hover: null };
+  ui: UiState = { buildType: null, selectedTower: null, sendTarget: null, viewBoard: 0, hover: null, staged: null, moveTowerId: null };
   private uiListeners = new Set<() => void>();
   private snapListeners = new Set<() => void>();
   snapVersion = 0;
@@ -69,7 +73,7 @@ class GameClient {
       this.aims.clear();
       this.fxEvents = [];
       const me = info.players.find((p) => p.id === myId);
-      this.ui = { buildType: null, selectedTower: null, sendTarget: null, viewBoard: me?.boardId ?? 0, hover: null };
+      this.ui = { buildType: null, selectedTower: null, sendTarget: null, viewBoard: me?.boardId ?? 0, hover: null, staged: null, moveTowerId: null };
       this.emitUi();
     }
   }
@@ -93,6 +97,7 @@ class GameClient {
           // our selection may have been sold
           if (!this.findTower(this.ui.selectedTower)) this.setUi({ selectedTower: null });
         }
+        if (this.ui.moveTowerId !== null && !this.findTower(this.ui.moveTowerId)) this.setUi({ moveTowerId: null, staged: null });
       }
       for (let i = 0; i < b.aim.length; i += 2) this.aims.set(b.aim[i], b.aim[i + 1] / 100);
       for (const fx of b.fx) this.fxEvents.push({ n: ++this.fxCounter, seq: s.seq, boardId: b.id, fx });
@@ -133,6 +138,14 @@ class GameClient {
 
   setUi(patch: Partial<UiState>): void {
     this.ui = { ...this.ui, ...patch };
+    this.emitUi();
+  }
+
+  /** Live portrait change. Mutates match info and pings UI subscribers. */
+  setPlayerIcon(playerId: string, icon: string): void {
+    const p = this.info?.players.find((x) => x.id === playerId);
+    if (!p || p.icon === icon) return;
+    p.icon = icon;
     this.emitUi();
   }
 

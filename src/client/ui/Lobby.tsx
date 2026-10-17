@@ -37,7 +37,7 @@ function InviteLinks({ code }: { code: string }) {
     else toast('error', 'Could not copy — select the link manually');
   };
   return (
-    <div className="col" style={{ gap: 8, flex: 1, minWidth: 260 }}>
+      <div className="col" style={{ gap: 8, flex: 1, minWidth: 0 }}>
       {local && lanLink && (
         <div className="lan-callout">
           <div style={{ fontWeight: 700, marginBottom: 4 }}>📡 Share this link with players on your network</div>
@@ -149,7 +149,8 @@ function Settings({ room, amHost }: { room: RoomState; amHost: boolean }) {
       <div className="seg" style={{ marginBottom: 10 }}>
         {(Object.keys(MODE_INFO) as GameMode[]).map((m) => (
           <button key={m} className={room.mode === m ? 'active' : ''} disabled={!amHost} onClick={() => set({ mode: m })}>
-            {MODE_INFO[m].label}
+            <span className="wide-only">{MODE_INFO[m].label}</span>
+            <span className="narrow-only">{MODE_INFO[m].short}</span>
           </button>
         ))}
       </div>

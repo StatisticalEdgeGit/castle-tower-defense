@@ -1,0 +1,40 @@
+# Castle Tower Defense — one public machine so friends can join from any network.
+# Match rooms live in memory, and accounts live on the ctd_data volume.
+# Deploy: fly deploy --ha=false
+
+app = "castle-td"
+primary_region = "lhr"
+
+[build]
+
+[deploy]
+  strategy = "immediate"
+
+[env]
+  NODE_ENV = "production"
+  PORT = "8080"
+  DB_PATH = "/data/db.json"
+  TRUST_PROXY = "1"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "off"
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [[http_service.checks]]
+    interval = "15s"
+    timeout = "5s"
+    grace_period = "30s"
+    method = "GET"
+    path = "/"
+
+[mounts]
+  source = "ctd_data"
+  destination = "/data"
+
+[[vm]]
+  memory = "512mb"
+  cpu_kind = "shared"
+  cpus = 1
