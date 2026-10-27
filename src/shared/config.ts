@@ -211,8 +211,8 @@ export const TOWERS: Record<TowerType, TowerDef> = {
     levels: [
       { cost: 200, damage: 30, rate: 0.7, range: 2.8, splash: 1.0 },
       // L2 is the group-clear step: the blast grows more than the raw shot.
-      { cost: 180, damage: 50, rate: 0.85, range: 2.9, splash: 1.45 },
-      { cost: 350, damage: 85, rate: 0.95, range: 3.0, splash: 1.65 },
+      { cost: 180, damage: 50, rate: 0.85, range: 3.2, splash: 1.45 },
+      { cost: 350, damage: 85, rate: 0.95, range: 3.6, splash: 1.65 },
     ],
   },
   frost: {
@@ -223,8 +223,8 @@ export const TOWERS: Record<TowerType, TowerDef> = {
     attacks: true,
     levels: [
       { cost: 150, damage: 4, rate: 1.2, range: 2.5, slow: 0.35, slowDuration: 1.5 },
-      { cost: 120, damage: 6, rate: 1.2, range: 2.6, slow: 0.45, slowDuration: 1.5, splash: 0.8 },
-      { cost: 250, damage: 9, rate: 1.2, range: 2.8, slow: 0.55, slowDuration: 1.6, pulse: true },
+      { cost: 120, damage: 6, rate: 1.2, range: 2.9, slow: 0.45, slowDuration: 1.5, splash: 0.8 },
+      { cost: 250, damage: 9, rate: 1.2, range: 3.3, slow: 0.55, slowDuration: 1.6, pulse: true },
     ],
   },
   sniper: {
@@ -236,9 +236,9 @@ export const TOWERS: Record<TowerType, TowerDef> = {
     ignoresArmor: true,
     levels: [
       { cost: 300, damage: 90, rate: 0.45, range: 7 },
-      // L2 picks up rate and a little reach. L3 is still the damage spike.
-      { cost: 250, damage: 150, rate: 0.52, range: 7.2 },
-      { cost: 500, damage: 280, rate: 0.55, range: 7.5 },
+      // Each upgrade adds real map coverage; L3 is still the damage spike.
+      { cost: 250, damage: 150, rate: 0.52, range: 7.8 },
+      { cost: 500, damage: 280, rate: 0.55, range: 8.6 },
     ],
   },
   tesla: {
@@ -251,8 +251,8 @@ export const TOWERS: Record<TowerType, TowerDef> = {
     chainRange: 1.8,
     levels: [
       { cost: 350, damage: 22, rate: 1.2, range: 2.6, chains: 3 },
-      { cost: 300, damage: 30, rate: 1.2, range: 2.6, chains: 5 },
-      { cost: 550, damage: 45, rate: 1.5, range: 2.8, chains: 7 },
+      { cost: 300, damage: 30, rate: 1.2, range: 3.0, chains: 5 },
+      { cost: 550, damage: 45, rate: 1.5, range: 3.4, chains: 7 },
     ],
   },
   mine: {
@@ -276,8 +276,8 @@ export const TOWERS: Record<TowerType, TowerDef> = {
     attacks: true,
     levels: [
       { cost: 200, damage: 3, rate: 5, range: 2.0, cone: 35, burnDps: 6, burnTime: 2 },
-      { cost: 170, damage: 5, rate: 5, range: 2.2, cone: 35, burnDps: 10, burnTime: 2 },
-      { cost: 330, damage: 8, rate: 6, range: 2.4, cone: 40, burnDps: 16, burnTime: 2.5 },
+      { cost: 170, damage: 5, rate: 5, range: 2.3, cone: 35, burnDps: 10, burnTime: 2 },
+      { cost: 330, damage: 8, rate: 6, range: 2.6, cone: 40, burnDps: 16, burnTime: 2.5 },
     ],
   },
   mortar: {
@@ -290,8 +290,8 @@ export const TOWERS: Record<TowerType, TowerDef> = {
     homing: false,
     levels: [
       { cost: 275, damage: 60, rate: 0.35, range: 8, minRange: 2, splash: 1.6 },
-      { cost: 250, damage: 100, rate: 0.4, range: 8, minRange: 2, splash: 1.8 },
-      { cost: 450, damage: 170, rate: 0.45, range: 9, minRange: 2, splash: 2.0 },
+      { cost: 250, damage: 100, rate: 0.4, range: 8.5, minRange: 1.75, splash: 1.8 },
+      { cost: 450, damage: 170, rate: 0.45, range: 9.5, minRange: 1.5, splash: 2.0 },
     ],
   },
   venom: {
@@ -302,8 +302,8 @@ export const TOWERS: Record<TowerType, TowerDef> = {
     attacks: true,
     levels: [
       { cost: 250, damage: 3, rate: 1.5, range: 3.0, poisonDps: 5, poisonMaxStacks: 4, poisonTime: 3 },
-      { cost: 220, damage: 4, rate: 1.7, range: 3.0, poisonDps: 7, poisonMaxStacks: 5, poisonTime: 3 },
-      { cost: 420, damage: 6, rate: 2.0, range: 3.3, poisonDps: 10, poisonMaxStacks: 6, poisonTime: 3.5 },
+      { cost: 220, damage: 4, rate: 1.7, range: 3.5, poisonDps: 7, poisonMaxStacks: 5, poisonTime: 3 },
+      { cost: 420, damage: 6, rate: 2.0, range: 4.0, poisonDps: 10, poisonMaxStacks: 6, poisonTime: 3.5 },
     ],
   },
   prism: {
@@ -315,8 +315,8 @@ export const TOWERS: Record<TowerType, TowerDef> = {
     beam: true,
     levels: [
       { cost: 400, damage: 18, rate: 1, range: 3.2, rampPerSec: 0.5, rampMax: 4 },
-      { cost: 350, damage: 28, rate: 1, range: 3.2, rampPerSec: 0.6, rampMax: 5 },
-      { cost: 600, damage: 42, rate: 1, range: 3.5, rampPerSec: 0.7, rampMax: 6 },
+      { cost: 350, damage: 28, rate: 1, range: 3.7, rampPerSec: 0.6, rampMax: 5 },
+      { cost: 600, damage: 42, rate: 1, range: 4.2, rampPerSec: 0.7, rampMax: 6 },
     ],
   },
   totem: {

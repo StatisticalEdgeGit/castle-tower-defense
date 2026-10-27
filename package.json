@@ -11,7 +11,8 @@
     "play": "npm run build && cross-env DEV_TOOLS=1 npm start",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "balance": "tsx scripts/balance.ts"
+    "balance": "tsx scripts/balance.ts",
+    "range-audit": "tsx scripts/range-audit.ts"
   },
   "dependencies": {
     "express": "^5.2.1",

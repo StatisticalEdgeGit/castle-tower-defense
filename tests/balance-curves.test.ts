@@ -4,6 +4,8 @@ import { Bot, levelDps } from '../src/server/sim/bot';
 import { GameSim, makeRuleset } from '../src/server/sim/game';
 import { armoredDps, minePaybackWaves, packEcoRatio, sendRole, upgradeSpend } from '../src/shared/combatMath';
 import { ENEMIES, TOWERS } from '../src/shared/config';
+import { MAPS, TILE_BUILDABLE } from '../src/shared/maps';
+import { pathCoverage } from '../src/shared/reach';
 import { CLASSIC_TOWERS, type PackId } from '../src/shared/types';
 
 const ECO_THEN_THREAT: PackId[] = ['grunts', 'swarm', 'runners', 'splitters', 'brutes', 'shields', 'knights', 'healers', 'warlord'];
@@ -44,6 +46,30 @@ describe('send and upgrade curves', () => {
   it('frost level 3 is worth more to the bot than another small slow', () => {
     expect(levelDps('frost', 3)).toBeGreaterThan(levelDps('frost', 2) * 1.4);
     expect(levelDps('frost', 2)).toBeGreaterThan(levelDps('frost', 1) * 1.3);
+  });
+
+  it('every attacking upgrade adds meaningful practical road coverage', () => {
+    for (const tower of Object.values(TOWERS).filter((t) => t.attacks)) {
+      const averages = tower.levels.map((level) => {
+        let road = 0;
+        let squares = 0;
+        for (const map of Object.values(MAPS)) {
+          for (let ty = 0; ty < map.height; ty++) {
+            for (let tx = 0; tx < map.width; tx++) {
+              if (map.tiles[ty * map.width + tx] !== TILE_BUILDABLE) continue;
+              road += pathCoverage(map, tx, ty, level.range, level.minRange ?? 0).spans.reduce(
+                (sum, span) => sum + Math.hypot(span.x2 - span.x1, span.y2 - span.y1),
+                0,
+              );
+              squares++;
+            }
+          }
+        }
+        return road / squares;
+      });
+      expect(averages[1] / averages[0], `${tower.name} L2 range value`).toBeGreaterThanOrEqual(1.12);
+      expect(averages[2] / averages[1], `${tower.name} L3 range value`).toBeGreaterThanOrEqual(1.12);
+    }
   });
 });
 
