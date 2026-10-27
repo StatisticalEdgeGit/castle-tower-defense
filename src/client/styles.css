@@ -1066,6 +1066,13 @@ select.input {
   overscroll-behavior: none;
   touch-action: manipulation;
 }
+.game-root:fullscreen,
+.game-root:-webkit-full-screen {
+  width: 100vw;
+  height: 100dvh;
+  max-height: none;
+  background: var(--bg);
+}
 body:has(.game-root) {
   overflow: hidden;
   overscroll-behavior: none;
@@ -1208,6 +1215,9 @@ body:has(.game-root) {
   margin-bottom: 0;
 }
 .rotate-gate {
+  display: none;
+}
+.landscape-fullscreen-prompt {
   display: none;
 }
 .place-bar .legend {
@@ -1933,6 +1943,34 @@ button.pack-card {
   .game-chat .chat-log {
     max-height: 72px;
     min-height: 0;
+  }
+}
+
+@media (orientation: landscape) and (pointer: coarse) and (max-height: 600px) {
+  .game-root {
+    width: 100vw;
+    height: 100dvh;
+    max-height: none;
+  }
+  .landscape-fullscreen-prompt {
+    position: fixed;
+    top: max(8px, env(safe-area-inset-top));
+    left: 50%;
+    z-index: 95;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    transform: translateX(-50%);
+    padding: 8px 12px;
+    border: 1px solid rgba(255, 210, 79, 0.72);
+    border-radius: 999px;
+    background: rgba(8, 12, 20, 0.9);
+    color: #fff1b8;
+    font-size: 12px;
+    font-weight: 800;
+    white-space: nowrap;
+    box-shadow: 0 6px 22px rgba(0, 0, 0, 0.42);
+    cursor: pointer;
   }
 }
 

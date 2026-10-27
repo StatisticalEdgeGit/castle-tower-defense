@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type Ref } from 'react';
+import { useCallback, useEffect, useRef, useState, type Ref } from 'react';
 import { armoredDps, minePaybackWaves, sendRole, shownDps, upgradeSpend } from '../../shared/combatMath';
 import { DIFFICULTY, ECONOMY, ENEMIES, MODE_INFO, PLAYER_COLORS, SEND_PACKS, TARGET_MODE_LABEL, TOWERS, waveHpMultiplier } from '../../shared/config';
 import { MAPS } from '../../shared/maps';
@@ -1037,9 +1037,86 @@ export function GameScreen() {
   const [help, setHelp] = useState(false);
   const [drawer, setDrawer] = useState<DrawerId | null>(null);
   const [faceId, setFaceId] = useState<string | null>(null);
+  const [showFullscreenPrompt, setShowFullscreenPrompt] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const fullscreenRequestPending = useRef(false);
   const helpRef = useRef(false);
   helpRef.current = help;
   useRenderLoop();
+
+  const enterLandscapeFullscreen = useCallback(async () => {
+    const root = rootRef.current;
+    const fullscreenDocument = document as Document & { webkitFullscreenElement?: Element | null };
+    const fullscreenRoot = root as (HTMLDivElement & { webkitRequestFullscreen?: () => Promise<void> | void }) | null;
+    const landscapePhone = window.matchMedia('(orientation: landscape) and (pointer: coarse) and (max-height: 600px)').matches;
+    if (!root || !landscapePhone || document.fullscreenElement || fullscreenDocument.webkitFullscreenElement || fullscreenRequestPending.current) return;
+
+    const request = root.requestFullscreen?.bind(root) ?? fullscreenRoot?.webkitRequestFullscreen?.bind(root);
+    if (!request) {
+      // iOS versions without element fullscreen still get the 100dvh landscape layout.
+      setShowFullscreenPrompt(false);
+      return;
+    }
+
+    fullscreenRequestPending.current = true;
+    try {
+      await request();
+      setShowFullscreenPrompt(false);
+    } catch {
+      // Browsers normally reject fullscreen unless it follows a tap. The next
+      // pointer interaction retries while it still has user activation.
+      setShowFullscreenPrompt(true);
+    } finally {
+      fullscreenRequestPending.current = false;
+    }
+  }, []);
+
+  useEffect(() => {
+    const query = window.matchMedia('(orientation: landscape) and (pointer: coarse) and (max-height: 600px)');
+    const fullscreenDocument = document as Document & {
+      webkitFullscreenElement?: Element | null;
+      webkitExitFullscreen?: () => Promise<void> | void;
+    };
+    let orientationTimer = 0;
+
+    const isFullscreen = () => !!(document.fullscreenElement || fullscreenDocument.webkitFullscreenElement);
+    const syncFullscreen = () => {
+      window.clearTimeout(orientationTimer);
+      orientationTimer = window.setTimeout(() => {
+        if (query.matches) {
+          if (isFullscreen()) setShowFullscreenPrompt(false);
+          else void enterLandscapeFullscreen();
+          return;
+        }
+
+        setShowFullscreenPrompt(false);
+        const fullscreenElement = document.fullscreenElement || fullscreenDocument.webkitFullscreenElement;
+        if (fullscreenElement === rootRef.current) {
+          const exit = document.exitFullscreen?.bind(document) ?? fullscreenDocument.webkitExitFullscreen?.bind(document);
+          void exit?.();
+        }
+      }, 120);
+    };
+    const retryWithUserGesture = () => {
+      if (query.matches && !isFullscreen()) void enterLandscapeFullscreen();
+    };
+    const onFullscreenChange = () => setShowFullscreenPrompt(query.matches && !isFullscreen());
+
+    syncFullscreen();
+    query.addEventListener?.('change', syncFullscreen);
+    window.addEventListener('orientationchange', syncFullscreen);
+    window.addEventListener('pointerdown', retryWithUserGesture, true);
+    document.addEventListener('fullscreenchange', onFullscreenChange);
+    document.addEventListener('webkitfullscreenchange', onFullscreenChange);
+    return () => {
+      window.clearTimeout(orientationTimer);
+      query.removeEventListener?.('change', syncFullscreen);
+      window.removeEventListener('orientationchange', syncFullscreen);
+      window.removeEventListener('pointerdown', retryWithUserGesture, true);
+      document.removeEventListener('fullscreenchange', onFullscreenChange);
+      document.removeEventListener('webkitfullscreenchange', onFullscreenChange);
+    };
+  }, [enterLandscapeFullscreen]);
 
   useEffect(() => {
     if (ui.selectedTower !== null) setDrawer('towers');
@@ -1136,11 +1213,16 @@ export function GameScreen() {
   const watched = viewingOther ? game.info.players.find((p) => p.boardId === ui.viewBoard) : undefined;
 
   return (
-    <div className="game-root">
+    <div className="game-root" ref={rootRef}>
       <div className="rotate-gate" role="dialog" aria-label="Turn your phone sideways">
         <div className="rotate-phone" aria-hidden="true" />
         <p>Turn your phone sideways to play.</p>
       </div>
+      {showFullscreenPrompt && (
+        <button type="button" className="landscape-fullscreen-prompt" onClick={() => void enterLandscapeFullscreen()}>
+          <span aria-hidden="true">⛶</span> Tap for full screen
+        </button>
+      )}
       {help && <ControlsHelp onClose={() => setHelp(false)} />}
       <div className="game-stage">
         {(spectating || viewingOther) && (
