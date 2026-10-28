@@ -30,6 +30,8 @@ export interface PublicUser {
   id: string;
   name: string;
   guest: boolean;
+  /** true when the account has a password (can log in on another device); unset for guests */
+  secured?: boolean;
 }
 
 export interface PlayerStats {

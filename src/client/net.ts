@@ -10,6 +10,8 @@ import { store, toast } from './store';
 // ── token storage ──────────────────────────────────────────────────────────
 // sessionStorage = this tab's identity (so several tabs can be different players);
 // localStorage = "last login" so a brand-new tab logs in automatically.
+// The server also keeps an HttpOnly cookie copy of the last login (/api/restore) in case the
+// browser wipes localStorage (iPhone Safari does after ~7 days without a visit).
 const TOKEN_KEY = 'ctd.token';
 const LAST_KEY = 'ctd.lastLogin';
 const NO_AUTO_KEY = 'ctd.noAuto';
@@ -58,6 +60,10 @@ export const session = {
     }
     return null;
   },
+  /** This tab chose "Switch account": do not log it in automatically. */
+  optedOut(): boolean {
+    return !!ssGet(NO_AUTO_KEY);
+  },
   save(token: string): void {
     ssSet(TOKEN_KEY, token);
     ssSet(NO_AUTO_KEY, null);
@@ -97,7 +103,12 @@ async function call<T>(method: string, path: string, body?: unknown, token?: str
 
 export const api = {
   register: (username: string, password: string) => call<AuthResponse>('POST', '/api/register', { username, password }),
+  /** passwordless device account: just a player name */
+  start: (name: string) => call<AuthResponse>('POST', '/api/start', { name }),
   login: (username: string, password: string) => call<AuthResponse>('POST', '/api/login', { username, password }),
+  setPassword: (token: string, password: string) => call<AuthResponse>('POST', '/api/set-password', { password }, token),
+  /** log back in from the HttpOnly cookie backup */
+  restore: () => call<AuthResponse | { ok: false; error?: string }>('GET', '/api/restore'),
   guest: (name: string) => call<AuthResponse>('POST', '/api/guest', { name }),
   logout: (token: string) => call<{ ok: boolean }>('POST', '/api/logout', {}, token),
   me: (token: string) => call<{ ok: true; user: PublicUser; stats: PlayerStats | null } | { ok: false; error: string }>('GET', '/api/me', undefined, token),
@@ -246,6 +257,13 @@ export async function boot(): Promise<void> {
     const r = await api.me(saved.token);
     if (r.ok) return onLoggedIn(saved.token, r.user, r.stats, false);
     session.clearAll(saved.token);
+  }
+  // No usable "last login" in this browser's storage: try the cookie backup, unless this tab
+  // chose "Switch account" or had its own (now invalid) identity. onLoggedIn saves the token
+  // locally again.
+  if ((!saved || saved.fromLast) && !session.optedOut()) {
+    const r = await api.restore();
+    if (r.ok) return onLoggedIn(r.token, r.user, r.stats);
   }
   store.set({ view: 'auth' });
 }

@@ -1,7 +1,9 @@
 // The home hub: top HUD (icon, level/XP, currencies, trophies) + tab content + bottom nav.
-import { logout, switchAccount } from '../../net';
+import { useState, type FormEvent } from 'react';
+import { api, logout, switchAccount } from '../../net';
 import { ThemePicker } from '../components';
-import { store, useStore, type HubTab } from '../../store';
+import { store, toast, useStore, type HubTab } from '../../store';
+import type { PublicUser } from '../../../shared/types';
 import { BattleTab } from './BattleTab';
 import { CurrencyChip, NavBadge, ProfileIcon } from './bits';
 import { CollectionTab } from './CollectionTab';
@@ -67,13 +69,106 @@ export function HudBar() {
         </button>
       )}
       <ThemePicker />
-      <button className="btn btn-sm btn-ghost" title="Use a different account in this tab (other tabs stay logged in)" onClick={switchAccount}>
+      <button
+        className="btn btn-sm btn-ghost"
+        title="Use a different account in this tab (other tabs stay logged in)"
+        onClick={() => {
+          if (confirmLeaveUnsecured(user, 'switch')) switchAccount();
+        }}
+      >
         <span className="wide-only">Switch account</span>
         <span className="narrow-only">Switch</span>
       </button>
-      <button className="btn btn-sm" onClick={() => void logout()}>
+      <button
+        className="btn btn-sm"
+        onClick={() => {
+          if (confirmLeaveUnsecured(user, 'logout')) void logout();
+        }}
+      >
         Log out
       </button>
+    </div>
+  );
+}
+
+/** A saved player without a password is only reachable through this browser's token. */
+function isUnsecured(user: PublicUser | null): boolean {
+  return !!user && !user.guest && !user.secured;
+}
+
+/** Warn before leaving a player that has no password. Returns false when the player cancels. */
+function confirmLeaveUnsecured(user: PublicUser, action: 'logout' | 'switch'): boolean {
+  if (!isUnsecured(user)) return true;
+  const text =
+    action === 'logout'
+      ? `"${user.name}" has no password. After logging out, this player cannot be recovered and its progress is lost.\n\nSet a password on the Battle tab first, or press OK to log out anyway.`
+      : `"${user.name}" has no password. If you start or log in as another player in this tab, you may not be able to get back to "${user.name}".\n\nSet a password on the Battle tab first, or press OK to switch anyway.`;
+  return window.confirm(text);
+}
+
+/** Home-tab nudge for passwordless device accounts: add a password to play anywhere. */
+export function SecureCallout() {
+  const user = useStore((s) => s.user);
+  const token = useStore((s) => s.token);
+  const [password, setPassword] = useState('');
+  const [password2, setPassword2] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  if (!user || !token || !isUnsecured(user)) return null;
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    if (password !== password2) return setError('Passwords do not match');
+    setBusy(true);
+    const r = await api.setPassword(token, password);
+    setBusy(false);
+    if (!r.ok) return setError(r.error);
+    setPassword('');
+    setPassword2('');
+    store.set((s) => ({ user: s.user ? { ...s.user, secured: true } : s.user }));
+    toast('success', `Password set — log in as ${user.name} on any device`);
+  };
+
+  return (
+    <div className="callout" style={{ marginBottom: 14 }}>
+      <div style={{ marginBottom: 8 }}>
+        🔐 <b>Secure your progress.</b> Set a password so you can play on another device or recover your player if your browser data is cleared.
+      </div>
+      <form onSubmit={submit}>
+        {/* lets password managers save the login under the right name */}
+        <input type="text" autoComplete="username" value={user.name} readOnly hidden />
+        <div className="row" style={{ flexWrap: 'wrap' }}>
+          <input
+            className="input"
+            type="password"
+            autoComplete="new-password"
+            placeholder="Password (at least 4 characters)"
+            aria-label="Password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            style={{ minWidth: 160 }}
+          />
+          <input
+            className="input"
+            type="password"
+            autoComplete="new-password"
+            placeholder="Confirm password"
+            aria-label="Confirm password"
+            value={password2}
+            onChange={(e) => setPassword2(e.target.value)}
+            style={{ minWidth: 160 }}
+          />
+          <button className="btn btn-primary btn-sm" disabled={busy || !password || !password2}>
+            {busy ? 'Saving…' : 'Set password'}
+          </button>
+        </div>
+        {error && (
+          <div className="form-error" style={{ margin: '8px 0 0' }}>
+            {error}
+          </div>
+        )}
+      </form>
     </div>
   );
 }
@@ -143,7 +238,12 @@ export function Home() {
       content = guest ? <GuestGate what="Trophy Road, quests and the Tower Pass" /> : profile ? <ProgressTab /> : null;
       break;
     default:
-      content = <BattleTab />;
+      content = (
+        <>
+          <SecureCallout />
+          <BattleTab />
+        </>
+      );
   }
   return (
     <div className="hub">
