@@ -302,6 +302,50 @@ describe('versus sends', () => {
     await A.c.req(EV.roomLeave);
   });
 
+  it('sandbox co-op is endless by default and stays off the endless leaderboard', async () => {
+    const mark = A.c.mark();
+    const created = await A.c.req(EV.roomCreate, { mode: 'coop', mapId: 'greenfield', difficulty: 'easy', sandbox: true });
+    expect(created).toMatchObject({ ok: true, room: { sandbox: true, mode: 'coop', endless: true } });
+    expect((await A.c.req(EV.roomStart)).ok).toBe(true);
+    const info = await A.c.waitFor<MatchStartInfo>(EV.matchStart, () => true, mark);
+    expect(info).toMatchObject({ endless: true, finalWave: null });
+    const match = ts.srv.rooms.roomOf(A.id)!.match!;
+    expect(match.rules.finalWave).toBeNull();
+    match.fastForward(900);
+    const res = await A.c.waitFor<MatchResults>(EV.matchOver, () => true, mark);
+    expect(res).toMatchObject({ endless: true, outcome: 'defeat' });
+    await A.c.waitFor<RoomState>(EV.roomState, (r) => r.state === 'waiting' && !!r.lastResults, mark);
+    const lb = await A.c.req(EV.progLeaderboard, { board: 'endless', mapId: 'greenfield', scope: 'global', period: 'all' });
+    expect(lb).toMatchObject({ ok: true, rows: [] });
+    await A.c.req(EV.roomLeave);
+
+    const off = await A.c.req(EV.roomCreate, { mode: 'coop', mapId: 'greenfield', difficulty: 'easy', sandbox: true, endless: false });
+    expect(off).toMatchObject({ ok: true, room: { sandbox: true, mode: 'coop', endless: false } });
+    await A.c.req(EV.roomLeave);
+  });
+
+  it('a sandbox room switched into co-op becomes endless; explicit endless and non-sandbox rooms are respected', async () => {
+    const settle = async (patch: object) => {
+      const m = A.c.mark();
+      expect((await A.c.req(EV.roomSettings, patch)).ok).toBe(true);
+      return A.c.waitFor<RoomState>(EV.roomState, () => true, m);
+    };
+    const sb = await A.c.req(EV.roomCreate, { mode: 'ffa', mapId: 'greenfield', difficulty: 'normal', sandbox: true });
+    expect(sb).toMatchObject({ ok: true, room: { sandbox: true, mode: 'ffa', endless: false } });
+    expect(await settle({ mode: 'coop' })).toMatchObject({ mode: 'coop', endless: true });
+    expect(await settle({ endless: false })).toMatchObject({ mode: 'coop', endless: false });
+    expect(await settle({ mapId: 'canyon' })).toMatchObject({ mode: 'coop', endless: false });
+    expect(await settle({ mode: 'ffa' })).toMatchObject({ mode: 'ffa', endless: false });
+    expect(await settle({ mode: 'coop', endless: false })).toMatchObject({ mode: 'coop', endless: false });
+    await A.c.req(EV.roomLeave);
+
+    const plain = await A.c.req(EV.roomCreate, { mode: 'coop', mapId: 'greenfield', difficulty: 'normal' });
+    expect(plain).toMatchObject({ ok: true, room: { sandbox: false, mode: 'coop', endless: false } });
+    expect(await settle({ mode: 'ffa' })).toMatchObject({ mode: 'ffa', endless: false });
+    expect(await settle({ mode: 'coop' })).toMatchObject({ mode: 'coop', endless: false });
+    await A.c.req(EV.roomLeave);
+  });
+
   it('kicked / leaving players free the room; empty rooms are deleted', async () => {
     const created = await A.c.req(EV.roomCreate, { mode: 'ffa', mapId: 'canyon', difficulty: 'hard' });
     const code = created.room.code;

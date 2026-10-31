@@ -263,8 +263,9 @@ export class RoomManager implements RoomsBridge {
     p: { mode?: unknown; mapId?: unknown; difficulty?: unknown; isPublic?: unknown; endless?: unknown; equalLevels?: unknown; sandbox?: unknown },
   ): Result<{ room: RoomState }> {
     if (!p || !isMode(p.mode) || !isMapId(p.mapId) || !isDifficulty(p.difficulty)) return fail('Invalid room settings');
-    const endless = p.mode === 'coop' && p.endless === true;
     const sandbox = p.sandbox === true;
+    // sandbox co-op is endless unless the host opts out
+    const endless = p.mode === 'coop' && (sandbox ? p.endless !== false : p.endless === true);
     const err = this.hooks.validateSettings?.(user, { mode: p.mode, mapId: p.mapId, endless, sandbox });
     if (err) return fail(err);
     const cur = this.roomOf(user.id);
@@ -439,6 +440,7 @@ export class RoomManager implements RoomsBridge {
       next.mapId = patch.mapId;
     }
     if (patch.endless !== undefined) next.endless = !!patch.endless;
+    else if (room.sandbox && next.mode === 'coop' && room.mode !== 'coop') next.endless = true;
     if (next.mode !== 'coop') next.endless = false;
     if (patch.difficulty !== undefined && !isDifficulty(patch.difficulty)) return fail('Unknown difficulty');
     if (typeof user !== 'string') {
