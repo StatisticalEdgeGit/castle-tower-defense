@@ -121,7 +121,7 @@ export function CreateGame() {
   const [busy, setBusy] = useState(false);
   const create = async () => {
     setBusy(true);
-    await act(EV.roomCreate, { mode, mapId, difficulty, isPublic, sandbox: true, equalLevels: true });
+    await act(EV.roomCreate, { mode, mapId, difficulty, isPublic, sandbox: true, equalLevels: true, endless: mode === 'coop' });
     setBusy(false);
   };
   return (
@@ -155,7 +155,7 @@ export function CreateGame() {
               <span className="name">{MAPS[id].name}</span>
               <MapBadge mapId={id} />
             </div>
-            <div className="fw">{mode === 'coop' ? `Survive ${MAPS[id].finalWave} waves` : 'Last one standing'}</div>
+            <div className="fw">{mode === 'coop' ? 'Endless waves' : 'Last one standing'}</div>
           </button>
         ))}
       </div>
