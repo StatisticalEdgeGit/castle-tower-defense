@@ -9,7 +9,7 @@
 // need, prefer high income-per-cost packs early and raw threat later, and hold back
 // while our own board is leaking. One gold mine is bought once a few towers are
 // already shooting; mines and war totems are upgraded like attacking towers.
-import { SEND_PACKS, TOWERS } from '../../shared/config';
+import { manualRepairCost, SEND_PACKS, TOWERS } from '../../shared/config';
 import { pointOnPath, TILE_BUILDABLE, type GameMap } from '../../shared/maps';
 import { arenaForTrophies, BOT_LEVEL_BY_ARENA, towerPool, troopPool } from '../../shared/progression';
 import { mulberry32 } from '../../shared/rng';
@@ -59,11 +59,13 @@ export function coverageMap(map: GameMap, range: number, minRange = 0): Float32A
 
 const TYPE_FACTOR: Record<TowerType, number> = {
   archer: 1.0,
+  crossbow: 1.25,
   cannon: 1.7,
   frost: 1.5,
   sniper: 1.15,
   tesla: 1.6,
   mine: 0,
+  builder: 0,
   flame: 1.35,
   mortar: 1.25,
   venom: 1.3,
@@ -76,6 +78,10 @@ export function levelDps(type: TowerType, level: number): number {
   const l = TOWERS[type].levels[level - 1];
   let dps = l.damage * l.rate;
   switch (type) {
+    case 'crossbow':
+      // Flyers are less common than ground units, so do not value the full 1.65× bonus.
+      dps *= 1.25;
+      break;
     case 'tesla':
       dps *= 1 + 0.6 * ((l.chains ?? 1) - 1) * 0.5;
       break;
@@ -103,6 +109,7 @@ export function levelDps(type: TowerType, level: number): number {
       dps = l.damage * (1 + (l.rampMax ?? 1)) * 0.5;
       break;
     case 'mine':
+    case 'builder':
     case 'totem':
       dps = 0;
       break;
@@ -140,7 +147,7 @@ export function botProfileForTrophies(trophies: number): { skill: number; thinkE
 /** Arena-appropriate loadout and army for a bot. */
 export function botLoadout(arena: number): { towers: TowerType[]; troops: PackId[] } {
   const pool = towerPool(arena);
-  const order: TowerType[] = ['archer', 'frost', 'sniper', 'cannon', 'tesla', 'venom', 'flame', 'mortar', 'prism', 'totem'];
+  const order: TowerType[] = ['archer', 'crossbow', 'frost', 'sniper', 'cannon', 'builder', 'tesla', 'venom', 'flame', 'mortar', 'prism', 'totem'];
   const towers = order.filter((t) => pool.includes(t)).slice(0, 6);
   const troops = troopPool(arena).slice(-5);
   return { towers, troops };
@@ -202,6 +209,13 @@ export class Bot {
     const board = sim.boards[p.boardId];
     const map = board.map;
     const mine = board.towers.filter((t) => t.owner === this.pid);
+    const emergency = mine
+      .filter((t) => t.hp / t.maxHp < 0.3)
+      .sort((a, b) => a.hp / a.maxHp - b.hp / b.maxHp)[0];
+    if (emergency) {
+      const cost = manualRepairCost(emergency.hp, emergency.maxHp);
+      if (cost > 0 && p.money >= cost) return sim.repairTower(this.pid, emergency.id).ok;
+    }
     const counts: Partial<Record<TowerType, number>> = {};
     for (const t of mine) counts[t.type] = (counts[t.type] ?? 0) + 1;
     // frost only pays off next to damage dealers: at most 1 frost per 4 damage towers on the board
@@ -217,6 +231,11 @@ export class Bot {
       if (type === 'mine') {
         const mineAction = this.mineAction(board.id, mine, sim.wave);
         if (mineAction) actions.push(mineAction);
+        continue;
+      }
+      if (type === 'builder') {
+        const builderAction = this.builderAction(board.id, mine);
+        if (builderAction) actions.push(builderAction);
         continue;
       }
       const def = TOWERS[type];
@@ -318,6 +337,35 @@ export class Bot {
     const tx = bestI % map.width;
     const ty = Math.floor(bestI / map.width);
     return { value, cost: lvl.cost, key: `m:${bestI}`, run: () => sim.placeTower(this.pid, boardId, tx, ty, 'mine').ok };
+  }
+
+  /** One Builder Hut near the centre of the bot's defence once siege troops matter. */
+  private builderAction(boardId: number, owned: Tower[]): { value: number; cost: number; run: () => boolean; key: string } | null {
+    if (owned.some((t) => t.type === 'builder')) return null;
+    const attackers = owned.filter((t) => TOWERS[t.type].attacks);
+    if (attackers.length < 3 || this.sim.wave < 4) return null;
+    const board = this.sim.boards[boardId];
+    const map = board.map;
+    const cx = attackers.reduce((sum, t) => sum + t.x, 0) / attackers.length;
+    const cy = attackers.reduce((sum, t) => sum + t.y, 0) / attackers.length;
+    let best = -1;
+    let bestD = Infinity;
+    for (let i = 0; i < map.tiles.length; i++) {
+      if (map.tiles[i] !== TILE_BUILDABLE || board.tileTower.has(i)) continue;
+      const x = (i % map.width) + 0.5;
+      const y = Math.floor(i / map.width) + 0.5;
+      const d = (x - cx) ** 2 + (y - cy) ** 2;
+      if (d < bestD) {
+        bestD = d;
+        best = i;
+      }
+    }
+    if (best < 0) return null;
+    const lvl = TOWERS.builder.levels[0];
+    const damaged = owned.some((t) => t.hp < t.maxHp);
+    const tx = best % map.width;
+    const ty = Math.floor(best / map.width);
+    return { value: damaged ? 0.42 : 0.22, cost: lvl.cost, key: `builder:${best}`, run: () => this.sim.placeTower(this.pid, boardId, tx, ty, 'builder').ok };
   }
 
   /** Upgrade a mine once the match is long enough for the extra income to matter. */

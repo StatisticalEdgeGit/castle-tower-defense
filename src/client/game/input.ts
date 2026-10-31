@@ -317,24 +317,103 @@ export function sellSelected(): void {
 /** Attach pointer handlers to the main canvas. Returns a cleanup function. */
 export function attachBoardInput(canvas: HTMLCanvasElement, renderer: BoardRenderer): () => void {
   boardRenderer = renderer;
+  const touchPoints = new Map<number, { x: number; y: number }>();
+  const gesturePointers = new Set<number>();
+  let pinch: { distance: number; midX: number; midY: number } | null = null;
+
+  const pinchState = () => {
+    const points = [...touchPoints.values()];
+    if (points.length < 2) return null;
+    const a = points[0];
+    const b = points[1];
+    return {
+      distance: Math.max(1, Math.hypot(b.x - a.x, b.y - a.y)),
+      midX: (a.x + b.x) / 2,
+      midY: (a.y + b.y) / 2,
+    };
+  };
+
+  const onGestureMove = (e: PointerEvent) => {
+    if (e.pointerType !== 'touch' || !touchPoints.has(e.pointerId)) return;
+    touchPoints.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    const next = pinchState();
+    if (!next) return;
+    e.preventDefault();
+    if (pinch) {
+      renderer.zoomBy(next.distance / pinch.distance, pinch.midX, pinch.midY);
+      renderer.panBy(next.midX - pinch.midX, next.midY - pinch.midY);
+    }
+    pinch = next;
+  };
+
+  const onGestureEnd = (e: PointerEvent) => {
+    if (!touchPoints.has(e.pointerId)) return;
+    touchPoints.delete(e.pointerId);
+    if (touchPoints.size < 2) pinch = null;
+    // Placement's pointer-up listener runs on the same event. Keep the marker
+    // until that listener has had a chance to suppress the accidental tap.
+    window.setTimeout(() => gesturePointers.delete(e.pointerId), 0);
+  };
+
+  const startPan = (e: PointerEvent, onTap?: () => void) => {
+    let x = e.clientX;
+    let y = e.clientY;
+    let moved = false;
+    canvas.style.cursor = 'grabbing';
+    trackPointer(
+      e.pointerId,
+      (ev) => {
+        const dx = ev.clientX - x;
+        const dy = ev.clientY - y;
+        if (!moved && Math.hypot(ev.clientX - e.clientX, ev.clientY - e.clientY) >= TAP_SLOP) moved = true;
+        if (moved) renderer.panBy(dx, dy);
+        x = ev.clientX;
+        y = ev.clientY;
+      },
+      () => {
+        canvas.style.cursor = renderer.zoomLevel > 1 ? 'grab' : 'default';
+        if (!moved) onTap?.();
+      },
+    );
+  };
+
   const onMove = (e: PointerEvent) => {
+    if (gesturePointers.has(e.pointerId)) return;
     const t = renderer.tileAt(e.clientX, e.clientY);
     const h = game.ui.hover;
     if ((t?.tx ?? -1) !== (h?.tx ?? -1) || (t?.ty ?? -1) !== (h?.ty ?? -1)) game.setUi({ hover: t });
     const tw = t ? game.towerAt(game.ui.viewBoard, t.tx, t.ty) : null;
     const canDrag = !!tw && tw.owner === game.myId && tw.freeMove !== false;
-    canvas.style.cursor = game.ui.buildType || game.ui.moveTowerId !== null ? 'crosshair' : canDrag ? 'grab' : tw ? 'pointer' : 'default';
+    canvas.style.cursor = game.ui.buildType || game.ui.moveTowerId !== null ? 'crosshair' : canDrag || renderer.zoomLevel > 1 ? 'grab' : tw ? 'pointer' : 'default';
   };
   const onLeave = () => game.setUi({ hover: null });
   const onDown = (e: PointerEvent) => {
+    if (e.pointerType === 'touch') {
+      gesturePointers.delete(e.pointerId);
+      touchPoints.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (touchPoints.size >= 2) {
+        for (const id of touchPoints.keys()) gesturePointers.add(id);
+        pinch = pinchState();
+        e.preventDefault();
+        return;
+      }
+    }
     if (e.button === 2) {
       e.preventDefault();
       cancelPlacementEdit();
       return;
     }
+    if (e.button === 1) {
+      e.preventDefault();
+      startPan(e);
+      return;
+    }
     if (e.button !== 0) return;
     const t = renderer.tileAt(e.clientX, e.clientY);
-    if (!t) return;
+    if (!t) {
+      if (renderer.zoomLevel > 1) startPan(e);
+      return;
+    }
     if (game.ui.buildType || game.ui.moveTowerId !== null) {
       const moving = game.ui.moveTowerId !== null;
       game.setUi({ staged: t, hover: t });
@@ -344,12 +423,14 @@ export function attachBoardInput(canvas: HTMLCanvasElement, renderer: BoardRende
       trackPointer(
         e.pointerId,
         (ev) => {
+          if (gesturePointers.has(ev.pointerId)) return;
           if (!dragged && Math.hypot(ev.clientX - x0, ev.clientY - y0) < TAP_SLOP) return;
           dragged = true;
           const p = renderer.tileAt(ev.clientX, ev.clientY);
           if (p) game.setUi({ hover: p, staged: p });
         },
         (ev) => {
+          if (gesturePointers.has(ev.pointerId)) return;
           const p = renderer.tileAt(ev.clientX, ev.clientY) ?? t;
           if (moving) {
             game.setUi({ hover: p, staged: p });
@@ -366,12 +447,17 @@ export function attachBoardInput(canvas: HTMLCanvasElement, renderer: BoardRende
       return;
     }
     const tw = game.towerAt(game.ui.viewBoard, t.tx, t.ty);
+    if (!tw && renderer.zoomLevel > 1) {
+      startPan(e, () => game.setUi({ selectedTower: null, buildType: null, moveTowerId: null, staged: null }));
+      return;
+    }
     const x0 = e.clientX;
     const y0 = e.clientY;
     let dragged = false;
     trackPointer(
       e.pointerId,
       (ev) => {
+        if (gesturePointers.has(ev.pointerId)) return;
         if (dragged || Math.hypot(ev.clientX - x0, ev.clientY - y0) < TAP_SLOP) return;
         if (!tw || tw.owner !== game.myId || tw.freeMove === false) return;
         const my = game.myInfo();
@@ -380,6 +466,7 @@ export function attachBoardInput(canvas: HTMLCanvasElement, renderer: BoardRende
         game.setUi({ moveTowerId: tw.id, buildType: null, selectedTower: tw.id, staged: { tx: tw.tx, ty: tw.ty }, hover: t });
       },
       (ev) => {
+        if (gesturePointers.has(ev.pointerId)) return;
         if (!dragged) {
           game.setUi({ selectedTower: tw ? tw.id : null, buildType: null, moveTowerId: null, staged: null });
           return;
@@ -393,15 +480,28 @@ export function attachBoardInput(canvas: HTMLCanvasElement, renderer: BoardRende
     e.preventDefault();
     cancelPlacementEdit();
   };
+  const onWheel = (e: WheelEvent) => {
+    e.preventDefault();
+    const factor = Math.max(0.8, Math.min(1.25, Math.exp(-e.deltaY * 0.0015)));
+    renderer.zoomBy(factor, e.clientX, e.clientY);
+  };
+  window.addEventListener('pointermove', onGestureMove, { passive: false });
+  window.addEventListener('pointerup', onGestureEnd);
+  window.addEventListener('pointercancel', onGestureEnd);
   canvas.addEventListener('pointermove', onMove);
   canvas.addEventListener('pointerleave', onLeave);
   canvas.addEventListener('pointerdown', onDown);
   canvas.addEventListener('contextmenu', onContext);
+  canvas.addEventListener('wheel', onWheel, { passive: false });
   return () => {
     if (boardRenderer === renderer) boardRenderer = null;
+    window.removeEventListener('pointermove', onGestureMove);
+    window.removeEventListener('pointerup', onGestureEnd);
+    window.removeEventListener('pointercancel', onGestureEnd);
     canvas.removeEventListener('pointermove', onMove);
     canvas.removeEventListener('pointerleave', onLeave);
     canvas.removeEventListener('pointerdown', onDown);
     canvas.removeEventListener('contextmenu', onContext);
+    canvas.removeEventListener('wheel', onWheel);
   };
 }

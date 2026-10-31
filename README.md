@@ -7,7 +7,7 @@ LAN. Nothing is deployed anywhere.
 
 - Server-authoritative simulation (20 ticks/s) — clients only send intents and render.
 - Accounts, guests, friends with live presence, in-app invites, invite links, public game browser.
-- 4 maps ("levels"), 11 towers × 3 levels, 10 enemy types incl. a boss, 3 difficulties.
+- 4 maps ("levels"), 13 towers × 3 levels, 15 regular enemy types + 5 bosses, 3 difficulties.
 - A Supercell-style meta game: two ranked trophy ladders (Duel 1v1 and Team 2v2) with
   matchmaking + bot backfill, 7 arenas, a Trophy Road, card collection & levels, loadouts,
   reward drops, chests, player levels, daily/weekly quests, a season pass, a daily shop,
@@ -163,16 +163,31 @@ do-nothing player (Normal): survived 2 wave(s), lost on wave 3
 | Tower | Cost | Notes |
 | --- | --- | --- |
 | Archer (1) | $100 | fast single target |
+| Crossbow | $175 | anti-air specialist; ×1.65 damage to air, can still shoot ground |
+| Builder Hut | $225 | dispatches a worker who travels to damaged buildings and repairs them |
 | Cannon (2) | $200 | shells travel and explode (splash) |
-| Frost (3) | $150 | slows (strongest slow wins, no stacking; bosses take half); L2 splash, L3 pulse hits everything in range |
-| Sniper (4) | $300 | range 7, ignores armor |
-| Tesla (5) | $350 | chains 3/5/7 targets, −20% per jump |
+| Frost (3) | $150 | ground only; slows (strongest slow wins, no stacking); L2 splash, L3 ground pulse |
+| Sniper (4) | $300 | ground + air, range 7, ignores armor |
+| Tesla (5) | $350 | ground + air; chains 3/5/7 targets, −20% per jump |
 | Gold Mine (6) | $250 | +$25/60/110 to its owner each wave, max 3 per player |
 
 Each attacking tower has a targeting mode (First / Last / Strongest / Closest). Selling
 refunds 70% of everything invested. Armor reduces each hit but a hit always does at least
-20% damage. Enemies: Grunt, Runner, Swarmling, Knight (armored), Brute, Healer (heals
-nearby enemies), and the Warlord boss every 10th wave.
+20% damage. Archer, Tesla, Sniper and Crossbow can target flying enemies; Archer deals 55%
+damage to air, Tesla and Sniper deal full damage, and Crossbow deals 165%. Other attacking
+towers are ground-only.
+
+Every defensive building has structure HP. Raiders, Shades, Stone Golems, Siege Titans and
+Dread Colossi stop near buildings to attack them; a destroyed building frees its tile for
+rebuilding. Select any damaged allied building to pay for an instant full repair. Builder Hut
+workers automatically travel across the map to the most damaged allied structure, repair it
+over time, and return home when no building needs work.
+
+The 15 regular types are Grunt, Runner, Swarmling, Knight, Brute, Healer, Splitter,
+Splitling, Shieldbearer, Raider, Stone Golem, Shade, Cave Bat, Harpy and Armored Drake.
+Cave Bats, Harpies and Armored Drakes fly. Boss waves introduce Warlord (10), Siege Titan
+(20), Storm Roc (30, flying), Dread Colossus (40), then the toughest boss, Void Dragon
+(50, flying). Later boss waves continue using the Void Dragon encounter.
 
 ## Controls
 
@@ -225,7 +240,7 @@ lobbies; everything below needs an account. All numbers live in
   arena milestones.
 
 ### Cards, levels, loadouts
-- 11 towers. New: **Flamethrower** (cone + burn, melts swarms), **Mortar** (range 8, min range 2,
+- 13 towers. New: **Crossbow** (anti-air specialist), **Builder Hut** (mobile automatic repairs), **Flamethrower** (cone + burn, melts swarms), **Mortar** (range 8, min range 2,
   huge splash, lobbed shells that lead the target), **Venom** (stacking armour-piercing poison),
   **Prism** (beam that ramps up to ×4–6 on one target), **War Totem** (+15% damage / +10% fire
   rate to towers within 2 tiles; several totems don't stack).

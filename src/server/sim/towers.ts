@@ -17,8 +17,16 @@ export interface SimContext {
 const r2 = (n: number) => Math.round(n * 100) / 100;
 
 function hit(ctx: SimContext, board: Board, tower: Tower, e: Enemy, raw: number, ignoreArmor: boolean): void {
-  const dealt = damageEnemy(e, raw, ignoreArmor);
+  if (!canTowerTarget(tower.type, e)) return;
+  const def = TOWERS[tower.type];
+  const movementMult = e.def.movement === 'air' ? (def.airDamageMult ?? 0) : 1;
+  const dealt = damageEnemy(e, raw * movementMult, ignoreArmor);
   ctx.onHit(board, tower, e, dealt);
+}
+
+/** Ground is the default; only explicitly anti-air-capable towers can acquire flyers. */
+export function canTowerTarget(type: Tower['type'], enemy: Enemy): boolean {
+  return enemy.def.movement === 'ground' || !!TOWERS[type].targetsAir;
 }
 
 /**
@@ -49,6 +57,52 @@ export function applyTotemBuffs(board: Board): void {
   }
 }
 
+/** Builder Huts each own one worker. Workers travel in a straight line and repair allies. */
+export function updateBuilders(board: Board, dt: number): void {
+  for (const hut of board.towers) {
+    const def = TOWERS[hut.type];
+    if (!def.builder || hut.hp <= 0) continue;
+    const lvl = def.levels[hut.level - 1];
+    const needsRepair = (t: Tower) => t !== hut && t.hp > 0 && t.hp < t.maxHp - 1e-6;
+    let target = board.towers.find((t) => t.id === hut.builderTarget && needsRepair(t));
+    if (!target) {
+      target = board.towers
+        .filter(needsRepair)
+        .sort((a, b) => {
+          const damageA = 1 - a.hp / a.maxHp;
+          const damageB = 1 - b.hp / b.maxHp;
+          if (Math.abs(damageA - damageB) > 1e-9) return damageB - damageA;
+          const da = (a.x - hut.builderX) ** 2 + (a.y - hut.builderY) ** 2;
+          const db = (b.x - hut.builderX) ** 2 + (b.y - hut.builderY) ** 2;
+          return da - db;
+        })[0];
+      hut.builderTarget = target?.id ?? -1;
+    }
+
+    const goalX = target?.x ?? hut.x;
+    const goalY = target?.y ?? hut.y;
+    const dx = goalX - hut.builderX;
+    const dy = goalY - hut.builderY;
+    const dist = Math.hypot(dx, dy);
+    const speed = lvl.builderSpeed ?? 2.3;
+    const repairDistance = 0.38;
+    hut.builderRepairing = !!target && dist <= repairDistance;
+    if (hut.builderRepairing && target) {
+      target.hp = Math.min(target.maxHp, target.hp + (lvl.repairRate ?? 0) * hut.mult * dt);
+      if (target.hp >= target.maxHp - 1e-6) {
+        target.hp = target.maxHp;
+        hut.builderTarget = -1;
+        hut.builderRepairing = false;
+      }
+      continue;
+    }
+    if (dist <= 1e-6) continue;
+    const step = Math.min(dist, speed * dt);
+    hut.builderX += (dx / dist) * step;
+    hut.builderY += (dy / dist) * step;
+  }
+}
+
 function pickTarget(board: Board, t: Tower, lvl: TowerLevel): Enemy | null {
   if (t.type === 'venom') {
     // spread poison: prefer targets that are not yet at max stacks
@@ -57,12 +111,12 @@ function pickTarget(board: Board, t: Tower, lvl: TowerLevel): Enemy | null {
     const fresh = saved.filter((e) => e.alive && (e.poisonStacks < max || e.poisonTime < 1));
     if (fresh.length && fresh.length !== saved.length) {
       board.enemies = fresh;
-      const best = selectTarget(board, t.x, t.y, lvl.range, t.targeting, lvl.minRange ?? 0);
+      const best = selectTarget(board, t.x, t.y, lvl.range, t.targeting, lvl.minRange ?? 0, (e) => canTowerTarget(t.type, e));
       board.enemies = saved;
       if (best) return best;
     }
   }
-  return selectTarget(board, t.x, t.y, lvl.range, t.targeting, lvl.minRange ?? 0);
+  return selectTarget(board, t.x, t.y, lvl.range, t.targeting, lvl.minRange ?? 0, (e) => canTowerTarget(t.type, e));
 }
 
 export function updateTowers(ctx: SimContext, board: Board, dt: number): void {
@@ -121,6 +175,7 @@ export function fire(ctx: SimContext, board: Board, t: Tower, target: Enemy): vo
   const dmg = lvl.damage * t.mult * (1 + t.buffDmg);
   switch (t.type) {
     case 'archer':
+    case 'crossbow':
     case 'sniper': {
       board.fx.push({ k: 'shot', t: t.type, x1: r2(t.x), y1: r2(t.y), x2: r2(target.x), y2: r2(target.y) });
       hit(ctx, board, t, target, dmg, !!def.ignoresArmor);
@@ -131,10 +186,10 @@ export function fire(ctx: SimContext, board: Board, t: Tower, target: Enemy): vo
       const dur = lvl.slowDuration ?? 1.5;
       let victims: Enemy[];
       if (lvl.pulse) {
-        victims = enemiesInRadius(board, t.x, t.y, lvl.range);
+        victims = enemiesInRadius(board, t.x, t.y, lvl.range, (e) => canTowerTarget(t.type, e));
         board.fx.push({ k: 'pulse', x: r2(t.x), y: r2(t.y), r: lvl.range });
       } else if (lvl.splash) {
-        victims = enemiesInRadius(board, target.x, target.y, lvl.splash);
+        victims = enemiesInRadius(board, target.x, target.y, lvl.splash, (e) => canTowerTarget(t.type, e));
         if (!victims.includes(target)) victims.push(target);
         board.fx.push({ k: 'shot', t: 'frost', x1: r2(t.x), y1: r2(t.y), x2: r2(target.x), y2: r2(target.y) });
         board.fx.push({ k: 'pulse', x: r2(target.x), y: r2(target.y), r: lvl.splash });
@@ -159,7 +214,7 @@ export function fire(ctx: SimContext, board: Board, t: Tower, target: Enemy): vo
       for (let i = 0; i < chains && cur; i++) {
         hitSet.add(cur.id);
         pts.push(r2(cur.x), r2(cur.y));
-        const next: Enemy | null = nearestEnemy(board, cur.x, cur.y, jump, hitSet);
+        const next: Enemy | null = nearestEnemy(board, cur.x, cur.y, jump, hitSet, (e) => canTowerTarget(t.type, e));
         hit(ctx, board, t, cur, d, false);
         d *= 1 - falloff;
         cur = next;
@@ -226,7 +281,7 @@ export function flameVictims(board: Board, t: { x: number; y: number }, range: n
   const out: Enemy[] = [];
   const rr = range * range;
   for (const e of board.enemies) {
-    if (!e.alive) continue;
+    if (!e.alive || !canTowerTarget('flame', e)) continue;
     const dx = e.x - t.x;
     const dy = e.y - t.y;
     const d2 = dx * dx + dy * dy;
@@ -245,7 +300,7 @@ export function flameVictims(board: Board, t: { x: number; y: number }, range: n
 
 /** Splash damage at a point: every enemy within radius takes the full hit (armor applies). */
 export function explode(ctx: SimContext, board: Board, tower: Tower, x: number, y: number, radius: number, damage: number): number {
-  const victims = enemiesInRadius(board, x, y, radius);
+  const victims = enemiesInRadius(board, x, y, radius, (e) => canTowerTarget(tower.type, e));
   for (const v of victims) hit(ctx, board, tower, v, damage, false);
   board.fx.push({ k: 'boom', x: r2(x), y: r2(y), r: radius });
   return victims.length;

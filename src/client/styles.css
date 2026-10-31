@@ -1176,6 +1176,47 @@ body:has(.game-root) {
   display: block;
   touch-action: none;
 }
+.map-zoom {
+  position: absolute;
+  right: 14px;
+  bottom: 14px;
+  z-index: 6;
+  display: flex;
+  align-items: stretch;
+  overflow: hidden;
+  border: 1px solid rgba(154, 178, 220, 0.5);
+  border-radius: 12px;
+  background: rgba(11, 18, 31, 0.9);
+  box-shadow: 0 5px 18px rgba(0, 0, 0, 0.38);
+  backdrop-filter: blur(5px);
+}
+.map-zoom button {
+  min-width: 40px;
+  height: 40px;
+  padding: 0 10px;
+  border: 0;
+  border-right: 1px solid rgba(154, 178, 220, 0.28);
+  border-radius: 0;
+  background: transparent;
+  color: #f4f7ff;
+  font: 800 21px/1 var(--font);
+  cursor: pointer;
+}
+.map-zoom button:last-child {
+  border-right: 0;
+}
+.map-zoom button:hover:not(:disabled) {
+  background: rgba(99, 132, 194, 0.35);
+}
+.map-zoom button:disabled {
+  color: #71809b;
+  cursor: default;
+}
+.map-zoom .map-zoom-level {
+  min-width: 62px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
 .place-bar {
   position: absolute;
   left: 50%;
@@ -1971,6 +2012,18 @@ button.pack-card {
     white-space: nowrap;
     box-shadow: 0 6px 22px rgba(0, 0, 0, 0.42);
     cursor: pointer;
+  }
+  .map-zoom {
+    right: 8px;
+    bottom: 8px;
+  }
+  .map-zoom button {
+    min-width: 34px;
+    height: 34px;
+    padding: 0 7px;
+  }
+  .map-zoom .map-zoom-level {
+    min-width: 54px;
   }
 }
 

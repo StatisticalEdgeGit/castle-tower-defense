@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type Ref } from 'react';
 import { armoredDps, minePaybackWaves, sendRole, shownDps, upgradeSpend } from '../../shared/combatMath';
-import { DIFFICULTY, ECONOMY, ENEMIES, MODE_INFO, PLAYER_COLORS, SEND_PACKS, TARGET_MODE_LABEL, TOWERS, waveHpMultiplier } from '../../shared/config';
+import { DIFFICULTY, ECONOMY, ENEMIES, manualRepairCost, MODE_INFO, PLAYER_COLORS, SEND_PACKS, TARGET_MODE_LABEL, TOWERS, waveHpMultiplier } from '../../shared/config';
 import { MAPS } from '../../shared/maps';
 import { EV, type Snapshot } from '../../shared/protocol';
 import { ICONS, STARTER_ICONS } from '../../shared/progression';
@@ -45,14 +45,14 @@ function useRenderLoop() {
   }, []);
 }
 
-function useCanvasRenderer(boardId: number, mini: boolean) {
+function useCanvasRenderer(boardId: number, mini: boolean, onZoomChange?: (zoom: number) => void) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const rendererRef = useRef<BoardRenderer | null>(null);
   useEffect(() => {
     const canvas = canvasRef.current!;
     const wrap = wrapRef.current!;
-    const r = new BoardRenderer(canvas, mini);
+    const r = new BoardRenderer(canvas, mini, onZoomChange);
     rendererRef.current = r;
     renderers.add(r);
     const ro = new ResizeObserver(() => {
@@ -260,6 +260,8 @@ function TowerPanel({ backRef, onBack }: { backRef: Ref<HTMLButtonElement>; onBa
   const mine = t.owner === game.myId;
   const me = snap?.players.find((p) => p.id === game.myId);
   const refund = Math.floor(t.invested * ECONOMY.sellRefund);
+  const repairCost = manualRepairCost(t.hp, t.maxHp);
+  const canRepairHere = game.myInfo()?.boardId === t.boardId;
   const mult = t.mult > 0 ? t.mult : 1;
   const scaled = (n: number) => {
     const v = n * mult;
@@ -297,7 +299,10 @@ function TowerPanel({ backRef, onBack }: { backRef: Ref<HTMLButtonElement>; onBa
       </div>
       <table className="stat-table">
         <tbody>
+          {row('Structure', `${Math.ceil(t.hp)} / ${t.maxHp} HP`, next ? `${Math.ceil(t.hp + (Math.round(def.structureHp * 0.35)))} / ${Math.round(def.structureHp * (1 + 0.35 * t.level))} HP` : undefined)}
           {def.attacks && row('Damage', scaled(cur.damage), next ? scaled(next.damage) : undefined)}
+          {def.attacks && row('Targets', def.targetsAir ? 'Ground + air' : 'Ground only')}
+          {def.targetsAir && row('Air damage', `${Math.round((def.airDamageMult ?? 1) * 100)}%`)}
           {def.attacks && row('Fire rate', `${cur.rate}/s`, next ? `${next.rate}/s` : undefined)}
           {def.attacks && row('DPS', Math.round(shownDps(t.type, t.level, mult)), next ? Math.round(shownDps(t.type, t.level + 1, mult)) : undefined)}
           {def.attacks && !def.ignoresArmor && !def.beam && row(`vs armor ${armor}`, Math.round(armoredDps(t.type, t.level, armor, mult)), next ? Math.round(armoredDps(t.type, t.level + 1, armor, mult)) : undefined)}
@@ -314,6 +319,8 @@ function TowerPanel({ backRef, onBack }: { backRef: Ref<HTMLButtonElement>; onBa
           {row('Beam ramp', cur.rampMax ? `up to ×${cur.rampMax}` : undefined, next?.rampMax ? `up to ×${next.rampMax}` : undefined)}
           {row('Buff', cur.buffDmg ? `+${Math.round(cur.buffDmg * 100)}% dmg, +${Math.round((cur.buffRate ?? 0) * 100)}% rate` : undefined, next?.buffDmg ? `+${Math.round(next.buffDmg * 100)}% / +${Math.round((next.buffRate ?? 0) * 100)}%` : undefined)}
           {row('Buff radius', cur.buffRadius, next?.buffRadius)}
+          {row('Repairs', cur.repairRate ? `${scaled(cur.repairRate)} HP/s` : undefined, next?.repairRate ? `${scaled(next.repairRate)} HP/s` : undefined)}
+          {row('Builder speed', cur.builderSpeed, next?.builderSpeed)}
           {def.ignoresArmor && row('Armor', 'ignores')}
           {def.beam && row('Armor', 'beam ignores')}
         </tbody>
@@ -331,6 +338,22 @@ function TowerPanel({ backRef, onBack }: { backRef: Ref<HTMLButtonElement>; onBa
           Pays for itself in {payback.toFixed(1)} waves
           {nextPayback !== null && Number.isFinite(nextPayback) ? `. The upgrade pays back in ${nextPayback.toFixed(1)}.` : '.'}
         </div>
+      )}
+      {repairCost > 0 && canRepairHere && (
+        <button
+          type="button"
+          className="btn btn-green"
+          style={{ marginTop: 8, width: '100%' }}
+          disabled={!me || me.money < repairCost}
+          onClick={() =>
+            void request<{ cost?: number }>(EV.repairTower, { towerId: t.id }).then((r) => {
+              if (!r.ok) toast('error', r.error);
+              else toast('success', `${def.name} fully repaired for $${r.cost ?? repairCost}`);
+            })
+          }
+        >
+          Repair fully · ${repairCost}
+        </button>
       )}
       {mine ? (
         <>
@@ -918,7 +941,8 @@ function EmoteStrip() {
 // ── Main board ─────────────────────────────────────────────────────────────
 function MainBoard() {
   const ui = useGameUi();
-  const { canvasRef, wrapRef, rendererRef } = useCanvasRenderer(ui.viewBoard, false);
+  const [zoom, setZoom] = useState(1);
+  const { canvasRef, wrapRef, rendererRef } = useCanvasRenderer(ui.viewBoard, false, setZoom);
   useEffect(() => {
     const canvas = canvasRef.current;
     const r = rendererRef.current;
@@ -928,6 +952,17 @@ function MainBoard() {
   return (
     <div className="canvas-wrap" ref={wrapRef}>
       <canvas ref={canvasRef} />
+      <div className="map-zoom" role="group" aria-label="Map zoom controls">
+        <button type="button" aria-label="Zoom out" title="Zoom out" disabled={zoom <= 1.001} onClick={() => rendererRef.current?.zoomBy(1 / 1.25)}>
+          −
+        </button>
+        <button type="button" className="map-zoom-level" aria-label="Reset map view" title="Reset map view" disabled={zoom <= 1.001} onClick={() => rendererRef.current?.resetView()}>
+          {Math.round(zoom * 100)}%
+        </button>
+        <button type="button" aria-label="Zoom in" title="Zoom in" disabled={zoom >= 2.499} onClick={() => rendererRef.current?.zoomBy(1.25)}>
+          +
+        </button>
+      </div>
       <PlaceBar />
     </div>
   );
@@ -981,6 +1016,7 @@ function WaveScout() {
         <span key={u.type} className={`scout-unit${u.debut ? ' debut' : ''}`} aria-label={u.debut ? `${u.name} joins this wave` : u.name}>
           <EnemyIcon type={u.type} size={22} />
           <span>×{u.count}</span>
+          {ENEMIES[u.type].movement === 'air' && <span title="Flying enemy">✈</span>}
           {u.debut && <span className="scout-new">NEW</span>}
         </span>
       ))}
@@ -998,6 +1034,9 @@ const CONTROLS: [string, string][] = [
   ['1–6', 'Choose a turret'],
   ['Tap, then tap', 'Arm a turret, then tap a square to place it'],
   ['Drag on the map', 'Slide the ghost, then let go to place it'],
+  ['Wheel / + −', 'Zoom the map in or out'],
+  ['Drag empty map', 'Pan while zoomed in'],
+  ['Pinch / two fingers', 'Zoom and pan on a touch screen'],
   ['Enter', 'Confirm the place or move'],
   ['Shift+click / Shift+Enter', 'Place and keep that turret armed'],
   ['Esc / right click', 'Cancel placement or selection'],

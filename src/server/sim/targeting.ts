@@ -9,14 +9,22 @@ import type { Board, Enemy } from './board';
  *  strong    – highest current HP (ties → first)
  *  close     – nearest to the tower (ties → first)
  */
-export function selectTarget(board: Board, x: number, y: number, range: number, mode: TargetMode, minRange = 0): Enemy | null {
+export function selectTarget(
+  board: Board,
+  x: number,
+  y: number,
+  range: number,
+  mode: TargetMode,
+  minRange = 0,
+  eligible: (enemy: Enemy) => boolean = () => true,
+): Enemy | null {
   const r2 = range * range;
   const min2 = minRange * minRange;
   let best: Enemy | null = null;
   let bestKey = 0;
   let bestRemain = 0;
   for (const e of board.enemies) {
-    if (!e.alive) continue;
+    if (!e.alive || !eligible(e)) continue;
     const dx = e.x - x;
     const dy = e.y - y;
     const d2 = dx * dx + dy * dy;
@@ -50,11 +58,11 @@ export function selectTarget(board: Board, x: number, y: number, range: number, 
   return best;
 }
 
-export function enemiesInRadius(board: Board, x: number, y: number, r: number): Enemy[] {
+export function enemiesInRadius(board: Board, x: number, y: number, r: number, eligible: (enemy: Enemy) => boolean = () => true): Enemy[] {
   const r2 = r * r;
   const out: Enemy[] = [];
   for (const e of board.enemies) {
-    if (!e.alive) continue;
+    if (!e.alive || !eligible(e)) continue;
     const dx = e.x - x;
     const dy = e.y - y;
     if (dx * dx + dy * dy <= r2) out.push(e);
@@ -63,12 +71,19 @@ export function enemiesInRadius(board: Board, x: number, y: number, r: number): 
 }
 
 /** Nearest living enemy to (x, y) within r that is not in `exclude`. */
-export function nearestEnemy(board: Board, x: number, y: number, r: number, exclude: Set<number>): Enemy | null {
+export function nearestEnemy(
+  board: Board,
+  x: number,
+  y: number,
+  r: number,
+  exclude: Set<number>,
+  eligible: (enemy: Enemy) => boolean = () => true,
+): Enemy | null {
   const r2 = r * r;
   let best: Enemy | null = null;
   let bestD = Infinity;
   for (const e of board.enemies) {
-    if (!e.alive || exclude.has(e.id)) continue;
+    if (!e.alive || exclude.has(e.id) || !eligible(e)) continue;
     const dx = e.x - x;
     const dy = e.y - y;
     const d2 = dx * dx + dy * dy;

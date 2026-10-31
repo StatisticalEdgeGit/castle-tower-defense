@@ -26,16 +26,16 @@ describe('path following', () => {
     const path = b.map.paths[0];
     const e = spawnAt(sim, b, 'grunt', 0); // speed 1 tile/s
     expect(e.x).toBeCloseTo(-0.5);
-    expect(e.y).toBeCloseTo(2.5);
+    expect(e.y).toBeCloseTo(3.5);
     for (let i = 0; i < 60; i++) moveEnemies(b, 0.05, () => {});
     expect(e.dist).toBeCloseTo(3, 5);
     expect(e.x).toBeCloseTo(2.5, 5);
-    expect(e.y).toBeCloseTo(2.5, 5);
-    // corner at (4.5, 2.5) is at distance 5; 1.5 tiles later we are heading down
+    expect(e.y).toBeCloseTo(3.5, 5);
+    // corner at (5.5, 3.5) is at distance 6; 0.5 tiles later we are heading down
     for (let i = 0; i < 70; i++) moveEnemies(b, 0.05, () => {});
-    expect(e.x).toBeCloseTo(4.5, 5);
+    expect(e.x).toBeCloseTo(5.5, 5);
     expect(e.y).toBeCloseTo(4.0, 5);
-    expect(pointOnPath(path, path.length).x).toBeCloseTo(24.5);
+    expect(pointOnPath(path, path.length).x).toBeCloseTo(28.5);
   });
 
   it('runners are faster and a leak costs lives', () => {
@@ -135,7 +135,7 @@ describe('damage rules', () => {
     const sim = makeSim('coop', 1);
     sim.nextWaveIn = null;
     const b = sim.boards[0];
-    const { tx, ty } = firstTile(greenfield, TILE_BUILDABLE, (x, y) => x === 5 && y === 4);
+    const { tx, ty } = firstTile(greenfield, TILE_BUILDABLE, (x, y) => x === 6 && y === 4);
     expect(sim.placeTower('p0', 0, tx, ty, 'cannon').ok).toBe(true);
     const e = enemyAtXY(sim, b, 'brute', tx + 0.5 - 2.3, ty + 0.5, 1000);
     e.speed = 0;
@@ -232,7 +232,7 @@ describe('economy & scaling', () => {
     const [p0, p1] = [sim.players.get('p0')!, sim.players.get('p1')!];
     const m0 = p0.money;
     const m1 = p1.money;
-    const { tx, ty } = firstTile(greenfield, TILE_BUILDABLE, (x, y) => x === 5 && y === 4);
+    const { tx, ty } = firstTile(greenfield, TILE_BUILDABLE, (x, y) => x === 6 && y === 4);
     sim.placeTower('p0', 0, tx, ty, 'archer');
     const e = enemyAtXY(sim, b, 'knight', tx + 1.5, ty + 0.5, 1);
     e.speed = 0;
@@ -319,7 +319,7 @@ describe('tower placement validation', () => {
     expect(sim.placeTower('p0', 0, path.tx, path.ty, 'archer')).toMatchObject({ ok: false });
     expect(sim.placeTower('p0', 0, deco.tx, deco.ty, 'archer')).toMatchObject({ ok: false });
     expect(sim.placeTower('p0', 0, -1, 3, 'archer')).toMatchObject({ ok: false, error: 'Out of bounds' });
-    expect(sim.placeTower('p0', 0, 24, 3, 'archer')).toMatchObject({ ok: false, error: 'Out of bounds' });
+    expect(sim.placeTower('p0', 0, map.width, 3, 'archer')).toMatchObject({ ok: false, error: 'Out of bounds' });
     expect(sim.placeTower('p0', 0, 1.5, 3, 'archer')).toMatchObject({ ok: false });
     expect(sim.placeTower('p0', 0, ok.tx, ok.ty, 'archer').ok).toBe(true);
     expect(sim.placeTower('p0', 0, ok.tx, ok.ty, 'archer')).toMatchObject({ ok: false, error: 'Tile occupied' });

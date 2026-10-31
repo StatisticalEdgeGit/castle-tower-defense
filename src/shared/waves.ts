@@ -10,10 +10,28 @@ export function waveBudget(wave: number): number {
   return WAVES.budgetBase + WAVES.budgetLinear * n + WAVES.budgetQuad * n * n;
 }
 
-const REGULAR: EnemyType[] = ['grunt', 'runner', 'swarm', 'brute', 'knight', 'healer'];
+/** Directly spawned regular enemies. Splitlings are created when a splitter dies. */
+export const REGULAR_WAVE_TYPES: EnemyType[] = [
+  'grunt',
+  'runner',
+  'raider',
+  'swarm',
+  'bat',
+  'brute',
+  'splitter',
+  'shade',
+  'shield',
+  'knight',
+  'harpy',
+  'healer',
+  'golem',
+  'drake',
+];
+
+export const BOSS_TYPES: EnemyType[] = ['warlord', 'titan', 'stormRoc', 'colossus', 'voidDragon'];
 
 function unlockedTypes(wave: number): EnemyType[] {
-  return REGULAR.filter((t) => WAVES.unlock[t] <= wave);
+  return REGULAR_WAVE_TYPES.filter((t) => WAVES.unlock[t] <= wave);
 }
 
 function pickWeighted<T>(rng: () => number, items: T[], weights: number[]): T {
@@ -31,6 +49,13 @@ export function bossCount(wave: number): number {
   return Math.max(1, Math.floor(wave / WAVES.bossEvery));
 }
 
+/** Boss 1–5 arrive on waves 10–50. Later boss waves keep the final encounter. */
+export function bossType(wave: number): EnemyType | null {
+  if (bossCount(wave) === 0) return null;
+  const tier = Math.min(BOSS_TYPES.length - 1, Math.floor(wave / WAVES.bossEvery) - 1);
+  return BOSS_TYPES[tier];
+}
+
 export function generateWave(wave: number, seed: number = WAVES.seed): SpawnGroup[] {
   const rng = mulberry32(hashSeed(seed, wave));
   let budget = waveBudget(wave);
@@ -42,7 +67,7 @@ export function generateWave(wave: number, seed: number = WAVES.seed): SpawnGrou
   if (bosses > 0) budget *= 0.55; // fewer escorts on boss waves
 
   const unlocked = unlockedTypes(wave);
-  const featured = REGULAR.find((t) => WAVES.unlock[t] === wave && t !== 'grunt');
+  const featured = REGULAR_WAVE_TYPES.find((t) => WAVES.unlock[t] === wave && t !== 'grunt');
   const shares: { type: EnemyType; points: number }[] = [];
 
   if (unlocked.length === 1) {
@@ -92,8 +117,9 @@ export function generateWave(wave: number, seed: number = WAVES.seed): SpawnGrou
     delay += count * spacing * 0.6 + 1;
   }
 
-  if (bosses > 0) {
-    groups.push({ type: 'warlord', count: bosses, spacing: WAVES.spacing.warlord, delay: +(delay * 0.5 + 2).toFixed(2) });
+  const boss = bossType(wave);
+  if (boss) {
+    groups.push({ type: boss, count: bosses, spacing: WAVES.spacing[boss], delay: +(delay * 0.5 + 2).toFixed(2) });
   }
   return groups;
 }

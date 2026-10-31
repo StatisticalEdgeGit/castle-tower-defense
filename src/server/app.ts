@@ -251,6 +251,7 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
     sock.on(EV.moveTower, guard(intent((m, p) => m.moveTower(user.id, p))));
     sock.on(EV.upgradeTower, guard(intent((m, p) => m.upgradeTower(user.id, p))));
     sock.on(EV.sellTower, guard(intent((m, p) => m.sellTower(user.id, p))));
+    sock.on(EV.repairTower, guard(intent((m, p) => m.repairTower(user.id, p))));
     sock.on(EV.setTargeting, guard(intent((m, p) => m.setTargeting(user.id, p))));
     sock.on(EV.sendTroops, guard(intent((m, p) => m.sendTroops(user.id, p))));
     sock.on(EV.ready, guard(intent((m, p) => m.ready(user.id, p))));

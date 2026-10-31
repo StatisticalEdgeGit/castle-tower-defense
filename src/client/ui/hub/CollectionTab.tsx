@@ -86,6 +86,7 @@ function CardDetail({ type, p, onClose, onDeck }: { type: TowerType; p: ProfileV
       </div>
       <table className="stat-table" style={{ marginTop: 10 }}>
         <tbody>
+          {row('Structure HP', def.structureHp, def.structureHp)}
           {support ? (
             <>
               {row('Damage buff', `+${Math.round(((lv1.buffDmg ?? 0) + TOTEM_LEVEL_BONUS * (level - 1)) * 100)}%`, `+${Math.round(((lv1.buffDmg ?? 0) + TOTEM_LEVEL_BONUS * (next - 1)) * 100)}%`)}
@@ -94,9 +95,16 @@ function CardDetail({ type, p, onClose, onDeck }: { type: TowerType; p: ProfileV
             </>
           ) : type === 'mine' ? (
             row('Income / wave', `$${Math.round((lv1.income ?? 0) * levelStatMult(level))}`, `$${Math.round((lv1.income ?? 0) * levelStatMult(next))}`)
+          ) : def.builder ? (
+            <>
+              {row('Repair rate', `${Math.round((lv1.repairRate ?? 0) * levelStatMult(level))} HP/s`, `${Math.round((lv1.repairRate ?? 0) * levelStatMult(next))} HP/s`)}
+              {row('Worker speed', lv1.builderSpeed ?? 0, lv1.builderSpeed ?? 0)}
+            </>
           ) : (
             <>
               {row('Damage', dmg(level), dmg(next))}
+              {row('Targets', def.targetsAir ? 'Ground + air' : 'Ground only', def.targetsAir ? 'Ground + air' : 'Ground only')}
+              {def.targetsAir && row('Air damage', `${Math.round((def.airDamageMult ?? 1) * 100)}%`, `${Math.round((def.airDamageMult ?? 1) * 100)}%`)}
               {row('DPS', Math.round(dmg(level) * lv1.rate), Math.round(dmg(next) * lv1.rate))}
               {row('Range', lv1.range, lv1.range)}
             </>

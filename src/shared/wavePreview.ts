@@ -41,7 +41,7 @@ export function previewWave(wave: number, seed: number, defenders: number): Wave
   }
   return {
     wave,
-    boss: units.some((u) => u.type === 'warlord'),
+    boss: units.some((u) => ENEMIES[u.type].boss),
     units,
     total: units.reduce((sum, u) => sum + u.count, 0),
   };

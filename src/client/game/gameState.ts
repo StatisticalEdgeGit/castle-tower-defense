@@ -99,6 +99,16 @@ class GameClient {
         }
         if (this.ui.moveTowerId !== null && !this.findTower(this.ui.moveTowerId)) this.setUi({ moveTowerId: null, staged: null });
       }
+      const towerList = this.towers.get(b.id);
+      if (towerList) {
+        for (const [id, hp, maxHp] of b.towerHp) {
+          const tower = towerList.find((t) => t.id === id);
+          if (tower) {
+            tower.hp = hp;
+            tower.maxHp = maxHp;
+          }
+        }
+      }
       for (let i = 0; i < b.aim.length; i += 2) this.aims.set(b.aim[i], b.aim[i + 1] / 100);
       for (const fx of b.fx) this.fxEvents.push({ n: ++this.fxCounter, seq: s.seq, boardId: b.id, fx });
     }

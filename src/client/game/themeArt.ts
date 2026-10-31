@@ -1,6 +1,7 @@
 // Robots and Mushrooms skins for the landscape and enemies. Towers stay classic.
 // Drawn only on this client; the match itself is unchanged.
 import type { EnemyType } from '../../shared/types';
+import { ENEMIES } from '../../shared/config';
 import type { SkinnedTheme } from './viewTheme';
 
 export interface WorldColors {
@@ -23,6 +24,16 @@ const ROBOT_ENEMY: Record<EnemyType, string> = {
   splitter: '#c084fc',
   splitling: '#ddd6fe',
   shield: '#60a5fa',
+  raider: '#fb7185',
+  golem: '#64748b',
+  shade: '#6366f1',
+  bat: '#a855f7',
+  harpy: '#2dd4bf',
+  drake: '#22c55e',
+  titan: '#f97316',
+  stormRoc: '#38bdf8',
+  colossus: '#475569',
+  voidDragon: '#8b5cf6',
 };
 
 const SHROOM_ENEMY: Record<EnemyType, string> = {
@@ -36,6 +47,16 @@ const SHROOM_ENEMY: Record<EnemyType, string> = {
   splitter: '#7c3aed',
   splitling: '#ddd6fe',
   shield: '#2563eb',
+  raider: '#ea580c',
+  golem: '#57534e',
+  shade: '#4c1d95',
+  bat: '#7e22ce',
+  harpy: '#0f766e',
+  drake: '#15803d',
+  titan: '#9a3412',
+  stormRoc: '#0284c7',
+  colossus: '#292524',
+  voidDragon: '#581c87',
 };
 
 /** Ground, path and water colours for a skinned theme. */
@@ -197,6 +218,20 @@ export function drawThemeBase(ctx: CanvasRenderingContext2D, theme: SkinnedTheme
 /** Enemy body already translated to the enemy's position. Status effects are drawn by the caller. */
 export function drawThemedEnemyBody(ctx: CanvasRenderingContext2D, theme: SkinnedTheme, type: EnemyType, r: number, dir: number): void {
   const col = theme === 'robots' ? ROBOT_ENEMY[type] : SHROOM_ENEMY[type];
+  const def = ENEMIES[type];
+  if (def.movement === 'air') {
+    ctx.fillStyle = theme === 'robots' ? '#bae6fd' : '#f5d0fe';
+    ctx.beginPath();
+    ctx.moveTo(-r * 0.2, 0);
+    ctx.lineTo(-r * 1.45, -r * 0.72);
+    ctx.lineTo(-r * 1.05, r * 0.5);
+    ctx.lineTo(-r * 0.2, r * 0.3);
+    ctx.moveTo(r * 0.2, 0);
+    ctx.lineTo(r * 1.45, -r * 0.72);
+    ctx.lineTo(r * 1.05, r * 0.5);
+    ctx.lineTo(r * 0.2, r * 0.3);
+    ctx.fill();
+  }
   if (theme === 'robots') {
     ctx.fillStyle = '#0f172a';
     roundRect(ctx, -r * 1.05, -r * 0.75, r * 2.1, r * 1.55, r * 0.28);
@@ -206,7 +241,7 @@ export function drawThemedEnemyBody(ctx: CanvasRenderingContext2D, theme: Skinne
     ctx.fill();
     ctx.fillStyle = '#020617';
     ctx.fillRect(-r * 0.9, r * 0.28, r * 1.8, r * 0.22);
-    if (type === 'warlord') {
+    if (def.boss) {
       ctx.strokeStyle = col;
       ctx.lineWidth = Math.max(1.5, r * 0.12);
       ctx.beginPath();
@@ -218,7 +253,7 @@ export function drawThemedEnemyBody(ctx: CanvasRenderingContext2D, theme: Skinne
       ctx.arc(0, -r * 1.5, r * 0.16, 0, Math.PI * 2);
       ctx.fill();
     }
-    if (type === 'knight' || type === 'shield') {
+    if (type === 'knight' || type === 'shield' || type === 'golem' || type === 'titan' || type === 'colossus') {
       ctx.strokeStyle = '#e2e8f0';
       ctx.lineWidth = Math.max(1.5, r * 0.1);
       ctx.strokeRect(-r * 0.95, -r * 0.7, r * 1.9, r * 1.35);
@@ -235,7 +270,7 @@ export function drawThemedEnemyBody(ctx: CanvasRenderingContext2D, theme: Skinne
     ctx.arc(-r * 0.35, -r * 0.18, r * 0.16, 0, Math.PI * 2);
     ctx.arc(r * 0.28, -r * 0.02, r * 0.12, 0, Math.PI * 2);
     ctx.fill();
-    if (type === 'warlord') {
+    if (def.boss) {
       ctx.fillStyle = '#fecdd3';
       ctx.beginPath();
       ctx.ellipse(-r * 0.55, -r * 0.35, r * 0.28, r * 0.16, -0.4, 0, Math.PI * 2);

@@ -1,9 +1,9 @@
 // Canvas 2D board renderer: cached static map layer + interpolated entities + fx.
-import { PLAYER_COLORS, SEND_PACKS, TOWERS } from '../../shared/config';
+import { ENEMIES, PLAYER_COLORS, SEND_PACKS, TOWERS } from '../../shared/config';
 import { MAPS, TILE_BUILDABLE, type GameMap } from '../../shared/maps';
 import type { Fx } from '../../shared/protocol';
 import { towerCenter } from '../../shared/reach';
-import { drawEnemy, drawMapStatic, drawTower, enemyTypeFromIndex, ENEMY_COLORS } from './art';
+import { drawBuilder, drawEnemy, drawMapStatic, drawTower, enemyTypeFromIndex, ENEMY_COLORS } from './art';
 import { themedEnemyColor } from './themeArt';
 import { getViewTheme, type ViewTheme } from './viewTheme';
 import { game } from './gameState';
@@ -19,6 +19,9 @@ type Effect =
   | { kind: 'flash'; t0: number; dur: number; color: string }
   | { kind: 'banner'; t0: number; dur: number; text: string; sub: string; color: string }
   | { kind: 'cone'; t0: number; dur: number; x: number; y: number; a: number; r: number; c: number };
+
+export const MIN_BOARD_ZOOM = 1;
+export const MAX_BOARD_ZOOM = 2.5;
 
 function angleLerp(a: number, b: number, t: number): number {
   let d = b - a;
@@ -138,10 +141,14 @@ export class BoardRenderer {
   private recoil = new Map<number, number>();
   private lastNow = 0;
   private themeSeen: ViewTheme | null = null;
+  private zoom = MIN_BOARD_ZOOM;
+  private focusX = 0;
+  private focusY = 0;
 
   constructor(
     readonly canvas: HTMLCanvasElement,
     readonly mini = false,
+    private readonly onZoomChange?: (zoom: number) => void,
   ) {
     const ctx = canvas.getContext('2d');
     if (!ctx) throw new Error('2D canvas not supported');
@@ -155,6 +162,10 @@ export class BoardRenderer {
     this.effects = [];
     this.fxCursor = game.fxEvents.length ? game.fxEvents[game.fxEvents.length - 1].n : 0;
     this.staticLayer = null;
+    this.zoom = MIN_BOARD_ZOOM;
+    this.focusX = map.width / 2;
+    this.focusY = map.height / 2;
+    this.onZoomChange?.(this.zoom);
   }
 
   resize(cssW: number, cssH: number): void {
@@ -172,16 +183,78 @@ export class BoardRenderer {
 
   private layout(): void {
     const map = this.map!;
-    this.tile = Math.min(this.cssW / map.width, this.cssH / map.height);
-    this.ox = (this.cssW - this.tile * map.width) / 2;
-    this.oy = (this.cssH - this.tile * map.height) / 2;
+    const fittedTile = Math.min(this.cssW / map.width, this.cssH / map.height);
+    this.tile = fittedTile * (this.mini ? MIN_BOARD_ZOOM : this.zoom);
+    const boardW = this.tile * map.width;
+    const boardH = this.tile * map.height;
+    let ox = this.cssW / 2 - this.focusX * this.tile;
+    let oy = this.cssH / 2 - this.focusY * this.tile;
+    ox = boardW <= this.cssW ? (this.cssW - boardW) / 2 : Math.min(0, Math.max(this.cssW - boardW, ox));
+    oy = boardH <= this.cssH ? (this.cssH - boardH) / 2 : Math.min(0, Math.max(this.cssH - boardH, oy));
+    this.ox = ox;
+    this.oy = oy;
+    if (this.tile > 0) {
+      this.focusX = (this.cssW / 2 - ox) / this.tile;
+      this.focusY = (this.cssH / 2 - oy) / this.tile;
+    }
+  }
+
+  get zoomLevel(): number {
+    return this.zoom;
+  }
+
+  /** Zoom around a client-space point so the square beneath it stays put. */
+  zoomBy(factor: number, clientX?: number, clientY?: number): void {
+    if (this.mini || !this.map || !Number.isFinite(factor) || factor <= 0) return;
+    this.setZoom(this.zoom * factor, clientX, clientY);
+  }
+
+  setZoom(value: number, clientX?: number, clientY?: number): void {
+    if (this.mini || !this.map) return;
+    const next = Math.min(MAX_BOARD_ZOOM, Math.max(MIN_BOARD_ZOOM, value));
+    if (Math.abs(next - this.zoom) < 0.001 || this.cssW <= 0 || this.cssH <= 0) return;
+    this.layout();
+    const rect = this.canvas.getBoundingClientRect();
+    const localX = clientX === undefined ? this.cssW / 2 : clientX - rect.left;
+    const localY = clientY === undefined ? this.cssH / 2 : clientY - rect.top;
+    const worldX = (localX - this.ox) / this.tile;
+    const worldY = (localY - this.oy) / this.tile;
+    this.zoom = next;
+    this.staticLayer = null;
+    this.layout();
+    this.focusX = worldX - (localX - this.cssW / 2) / this.tile;
+    this.focusY = worldY - (localY - this.cssH / 2) / this.tile;
+    this.layout();
+    this.onZoomChange?.(this.zoom);
+  }
+
+  /** Move the enlarged board by a screen-space delta. */
+  panBy(dx: number, dy: number): void {
+    if (this.mini || !this.map || this.zoom <= MIN_BOARD_ZOOM || this.tile <= 0) return;
+    this.focusX -= dx / this.tile;
+    this.focusY -= dy / this.tile;
+    this.layout();
+  }
+
+  resetView(): void {
+    if (this.mini || !this.map) return;
+    this.zoom = MIN_BOARD_ZOOM;
+    this.focusX = this.map.width / 2;
+    this.focusY = this.map.height / 2;
+    this.staticLayer = null;
+    this.layout();
+    this.onZoomChange?.(this.zoom);
   }
 
   private buildStatic(): void {
     const map = this.map!;
     this.layout();
     const c = document.createElement('canvas');
-    const s = this.tile * this.dpr;
+    // A 2.5x camera on a high-DPI desktop can otherwise allocate a ~200 MB
+    // off-screen canvas. Keep the cached terrain sharp but within a safe size;
+    // dynamic towers/enemies still render at the display's full resolution.
+    const maxStaticDimension = 4096;
+    const s = Math.min(this.tile * this.dpr, maxStaticDimension / map.width, maxStaticDimension / map.height);
     c.width = Math.ceil(map.width * s);
     c.height = Math.ceil(map.height * s);
     const cx = c.getContext('2d')!;
@@ -229,7 +302,7 @@ export class BoardRenderer {
         const type = enemyTypeFromIndex(fx.e);
         const skin = getViewTheme();
         const paint = skin === 'classic' ? ENEMY_COLORS[type] : themedEnemyColor(skin, type);
-        this.burst(fx.x, fx.y, type === 'warlord' ? 26 : 7, [paint, '#ffffff', '#333'], type === 'warlord' ? 3 : 1.6, t, 420);
+        this.burst(fx.x, fx.y, ENEMIES[type].boss ? 26 : 7, [paint, '#ffffff', '#333'], ENEMIES[type].boss ? 3 : 1.6, t, 420);
         const me = game.myInfo();
         if (fx.b > 0 && me && me.boardId === this.boardId) {
           const amount = fx.b >= 10 ? Math.round(fx.b) : Math.round(fx.b * 10) / 10;
@@ -276,6 +349,16 @@ export class BoardRenderer {
       case 'shieldup':
         this.effects.push({ kind: 'ring', t0: t, dur: 600, x: fx.x, y: fx.y, r: fx.r, color: 'rgba(170,200,255,1)', fill: 'rgba(120,160,255,0.25)' });
         break;
+      case 'towerhit':
+        if (!mini) this.burst(fx.x, fx.y, 5, ['#ffcf4a', '#ff5d5d', '#5b3a22'], 1.1, t, 280);
+        break;
+      case 'towerdown':
+        this.effects.push({ kind: 'ring', t0: t, dur: 500, x: fx.x, y: fx.y, r: 0.8, color: 'rgba(255,80,60,1)', fill: 'rgba(80,20,10,0.35)' });
+        if (!mini) this.burst(fx.x, fx.y, 18, ['#ff6b4a', '#6b4b35', '#2f343d'], 2.4, t, 650);
+        break;
+      case 'repair':
+        this.effects.push({ kind: 'ring', t0: t, dur: 550, x: fx.x, y: fx.y, r: 0.65, color: 'rgba(90,255,150,1)', fill: 'rgba(90,255,150,0.2)' });
+        break;
       case 'wave':
         if (mini) return;
         this.effects.push({
@@ -283,7 +366,7 @@ export class BoardRenderer {
           t0: t,
           dur: 1900,
           text: fx.boss ? `BOSS WAVE ${fx.wave}` : `WAVE ${fx.wave}`,
-          sub: fx.boss ? 'The Warlord approaches!' : '',
+          sub: fx.boss ? 'A boss approaches!' : '',
           color: fx.boss ? '#ff4d6d' : '#ffffff',
         });
         break;
@@ -325,7 +408,13 @@ export class BoardRenderer {
 
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
-    ctx.drawImage(this.staticLayer!, Math.round(this.ox * dpr), Math.round(this.oy * dpr));
+    ctx.drawImage(
+      this.staticLayer!,
+      Math.round(this.ox * dpr),
+      Math.round(this.oy * dpr),
+      Math.ceil(map.width * this.tile * dpr),
+      Math.ceil(map.height * this.tile * dpr),
+    );
     ctx.setTransform(dpr, 0, 0, dpr, this.ox * dpr, this.oy * dpr);
 
     const frame = game.buffer.frame(now);
@@ -394,6 +483,17 @@ export class BoardRenderer {
         recoil,
         alpha: sliding ? 0.35 : 1,
       });
+      if (t.hp < t.maxHp - 0.5) {
+        const frac = Math.max(0, t.hp / t.maxHp);
+        const w = s * 0.72;
+        const h = Math.max(3, s * 0.07);
+        const bx = (t.tx + 0.5) * s - w / 2;
+        const by = t.ty * s - s * 0.02;
+        ctx.fillStyle = 'rgba(0,0,0,0.75)';
+        ctx.fillRect(bx - 1, by - 1, w + 2, h + 2);
+        ctx.fillStyle = frac > 0.55 ? '#facc15' : '#ef4444';
+        ctx.fillRect(bx, by, w * frac, h);
+      }
       if (!editing && ui.selectedTower === t.id) {
         ctx.strokeStyle = '#ffffff';
         ctx.lineWidth = 2;
@@ -402,6 +502,9 @@ export class BoardRenderer {
         ctx.setLineDash([]);
       }
     }
+
+    // Builder Hut workers travel independently of the hut that dispatched them.
+    for (const [, x, y, , repairing] of bB.builders) drawBuilder(ctx, x * s, y * s, s, time, repairing === 1);
 
     // enemies
     const enemies = interpolateEnemies(bA, bB, frame.alpha);
@@ -416,7 +519,7 @@ export class BoardRenderer {
         this.dirs.set(e.id, dir);
       }
       const type = enemyTypeFromIndex(e.typeIdx);
-      drawEnemy(ctx, type, e.x * s, e.y * s, s, dir, e.hp, e.flags, time + e.id * 0.37, !this.mini || type === 'warlord');
+      drawEnemy(ctx, type, e.x * s, e.y * s, s, dir, e.hp, e.flags, time + e.id * 0.37, !this.mini || !!ENEMIES[type].boss);
       enemyPos.set(e.id, e);
     }
     if (this.dirs.size > enemies.length * 2 + 50) for (const id of [...this.dirs.keys()]) if (!seen.has(id)) this.dirs.delete(id);

@@ -39,6 +39,10 @@ export interface Enemy {
   poisonDps: number;
   poisonTime: number;
   poisonTower: Tower | null;
+  /** Siege combat state. -1 means the enemy is walking normally. */
+  towerTarget: number;
+  towerAttackCooldown: number;
+  towerScanCooldown: number;
 }
 
 export interface Tower {
@@ -71,6 +75,14 @@ export interface Tower {
   damage: number;
   /** owner may slide this tower onto another square once, for free */
   freeMove: boolean;
+  /** Buildings can be attacked, repaired, and destroyed. */
+  hp: number;
+  maxHp: number;
+  /** Worker state (used by Builder Huts; harmless defaults on other towers). */
+  builderX: number;
+  builderY: number;
+  builderTarget: number;
+  builderRepairing: boolean;
 }
 
 export interface Shell {

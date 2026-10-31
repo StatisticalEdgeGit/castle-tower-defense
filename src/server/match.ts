@@ -186,6 +186,11 @@ export class Match {
     return this.sim.sellTower(uid, p.towerId);
   }
 
+  repairTower(uid: string, p: { towerId?: unknown }): Result<{ cost?: number }> {
+    if (!p || typeof p.towerId !== 'number') return { ok: false, error: 'Bad request' };
+    return this.sim.repairTower(uid, p.towerId);
+  }
+
   moveTower(uid: string, p: { towerId?: unknown; tx?: unknown; ty?: unknown }): Result {
     if (!p || typeof p.towerId !== 'number' || typeof p.tx !== 'number' || typeof p.ty !== 'number') return { ok: false, error: 'Bad request' };
     return this.sim.moveTower(uid, p.towerId, p.tx, p.ty);

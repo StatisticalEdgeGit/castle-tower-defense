@@ -6,10 +6,13 @@ import {
   DIFFICULTY,
   DT,
   ECONOMY,
+  ENEMIES,
+  manualRepairCost,
   MAX_PLAYERS,
   SEND_PACKS,
   TIMING,
   TOWERS,
+  towerMaxHp,
   WAVES,
 } from '../../shared/config';
 import { MAPS, type GameMap } from '../../shared/maps';
@@ -47,8 +50,8 @@ import {
   waveBonus,
   type Escalation,
 } from './economy';
-import { applyDots, applyHealers, applyShieldbearers, createEnemy, createSplitChildren, moveEnemies } from './enemies';
-import { applyTotemBuffs, beamRamp, updateShells, updateTowers, type SimContext } from './towers';
+import { applyDots, applyHealers, applyShieldbearers, createEnemy, createSplitChildren, updateEnemies } from './enemies';
+import { applyTotemBuffs, beamRamp, updateBuilders, updateShells, updateTowers, type SimContext } from './towers';
 import { levelStatMult, MAX_CARD_LEVEL } from '../../shared/progression';
 import { ENEMY_FLAG } from '../../shared/types';
 
@@ -343,16 +346,27 @@ export class GameSim implements SimContext {
       b.enemies.push(createEnemy(this.nextId(), b, s));
     }
     applyHealers(b, dt);
-    moveEnemies(b, dt, (e) => {
+    const destroyed = updateEnemies(b, dt, (e) => {
       b.lives = Math.max(0, b.lives - e.lives);
       b.fx.push({ k: 'leak', x: round2(e.x), y: round2(e.y), n: e.lives });
     });
+    for (const t of destroyed) this.destroyTower(b, t);
     for (const p of applyShieldbearers(b)) b.fx.push({ k: 'shieldup', x: round2(p.x), y: round2(p.y), r: p.r });
     applyDots(b, dt, (tower, e, dealt) => this.onHit(b, tower, e, dealt));
+    updateBuilders(b, dt);
     applyTotemBuffs(b);
     updateTowers(this, b, dt);
     updateShells(this, b, dt);
     if (b.enemies.some((e) => !e.alive)) b.enemies = b.enemies.filter((e) => e.alive);
+  }
+
+  private destroyTower(board: Board, tower: Tower): void {
+    if (!this.towerById.has(tower.id)) return;
+    board.towers = board.towers.filter((t) => t !== tower);
+    board.tileTower.delete(tower.ty * board.map.width + tower.tx);
+    this.towerById.delete(tower.id);
+    board.towersVersion++;
+    board.fx.push({ k: 'towerdown', x: tower.x, y: tower.y });
   }
 
   private allReady(): boolean {
@@ -377,7 +391,7 @@ export class GameSim implements SimContext {
       this.give(p, pay);
     }
     const groups = generateWave(this.wave, this.rules.waveSeed);
-    const boss = groups.some((g) => g.type === 'warlord');
+    const boss = groups.some((g) => ENEMIES[g.type].boss);
     for (const b of this.boards) {
       if (!b.alive) continue;
       const k = b.defenders.length;
@@ -531,6 +545,12 @@ export class GameSim implements SimContext {
       kills: 0,
       damage: 0,
       freeMove: true,
+      hp: towerMaxHp(type, 1),
+      maxHp: towerMaxHp(type, 1),
+      builderX: tx + 0.5,
+      builderY: ty + 0.5,
+      builderTarget: -1,
+      builderRepairing: false,
     };
     board.towers.push(t);
     board.tileTower.set(ty * board.map.width + tx, t);
@@ -559,7 +579,10 @@ export class GameSim implements SimContext {
     const cost = TOWERS[t.type].levels[t.level].cost;
     if (p.money < cost) return fail('Not enough money');
     p.money -= cost;
+    const oldMaxHp = t.maxHp;
     t.level++;
+    t.maxHp = towerMaxHp(t.type, t.level);
+    t.hp = Math.min(t.maxHp, t.hp + (t.maxHp - oldMaxHp));
     t.invested += cost;
     board.towersVersion++;
     board.fx.push({ k: 'build', x: t.x, y: t.y });
@@ -578,6 +601,23 @@ export class GameSim implements SimContext {
     board.towersVersion++;
     board.fx.push({ k: 'sell', x: t.x, y: t.y, v: refund });
     return { ok: true, refund };
+  }
+
+  /** Pay to restore a damaged allied building to full health. */
+  repairTower(pid: string, towerId: number): Result<{ cost: number }> {
+    const p = this.actor(pid);
+    if (typeof p === 'string') return fail(p);
+    const t = this.towerById.get(towerId);
+    if (!t) return fail('Tower not found');
+    const board = this.boards[t.boardId];
+    if (!board.defenders.includes(pid)) return fail('You can only repair buildings on your own board');
+    const cost = manualRepairCost(t.hp, t.maxHp);
+    if (cost <= 0) return fail('This building is already fully repaired');
+    if (p.money < cost) return fail('Not enough money');
+    p.money -= cost;
+    t.hp = t.maxHp;
+    board.fx.push({ k: 'repair', x: t.x, y: t.y });
+    return { ok: true, cost };
   }
 
   /** Slide an owned tower onto another buildable square. Allowed once, and it costs nothing. */
@@ -599,6 +639,12 @@ export class GameSim implements SimContext {
     t.ty = ty;
     t.x = tx + 0.5;
     t.y = ty + 0.5;
+    if (TOWERS[t.type].builder) {
+      t.builderX = t.x;
+      t.builderY = t.y;
+      t.builderTarget = -1;
+      t.builderRepairing = false;
+    }
     t.freeMove = false;
     t.targetId = -1;
     t.beamTarget = -1;
@@ -717,6 +763,8 @@ export class GameSim implements SimContext {
       kills: t.kills,
       freeMove: t.freeMove,
       mult: t.mult,
+      hp: t.hp,
+      maxHp: t.maxHp,
     }));
   }
 
@@ -751,7 +799,8 @@ export class GameSim implements SimContext {
           (e.slowTime > 0 ? ENEMY_FLAG.slowed : 0) |
             (e.shield > 0 ? ENEMY_FLAG.shielded : 0) |
             (e.burnTime > 0 ? ENEMY_FLAG.burning : 0) |
-            (e.poisonTime > 0 && e.poisonStacks > 0 ? ENEMY_FLAG.poisoned : 0),
+            (e.poisonTime > 0 && e.poisonStacks > 0 ? ENEMY_FLAG.poisoned : 0) |
+            (e.towerTarget >= 0 ? ENEMY_FLAG.attackingTower : 0),
         ]);
       const shells: ShellTuple[] = b.shells.map((s) => [s.id, round2(s.x), round2(s.y), s.kind]);
       const aim: number[] = [];
@@ -772,6 +821,10 @@ export class GameSim implements SimContext {
         aim,
         beams,
         buffed: b.towers.filter((t) => t.buffDmg > 0).map((t) => t.id),
+        towerHp: b.towers.map((t) => [t.id, round2(t.hp), t.maxHp]),
+        builders: b.towers
+          .filter((t) => TOWERS[t.type].builder)
+          .map((t) => [t.id, round2(t.builderX), round2(t.builderY), t.builderTarget, t.builderRepairing ? 1 : 0]),
         fx: drainFx ? b.fx : b.fx.slice(),
       };
       if (!knownVersions || knownVersions[b.id] !== b.towersVersion) snap.towers = this.towerSnaps(b);

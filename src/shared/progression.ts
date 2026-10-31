@@ -49,7 +49,7 @@ export interface ArenaDef {
 }
 
 export const ARENAS: ArenaDef[] = [
-  { index: 0, id: 'meadow', name: 'Meadow Outpost', trophies: 0, emoji: '🌿', colors: ['#2f7d46', '#174a2a', '#8de07f'], towers: ['archer', 'cannon', 'frost', 'sniper'], troops: ['grunts', 'runners', 'swarm', 'brutes'], maps: ['greenfield'] },
+  { index: 0, id: 'meadow', name: 'Meadow Outpost', trophies: 0, emoji: '🌿', colors: ['#2f7d46', '#174a2a', '#8de07f'], towers: ['archer', 'crossbow', 'builder', 'cannon', 'frost', 'sniper'], troops: ['grunts', 'runners', 'swarm', 'brutes'], maps: ['greenfield'] },
   { index: 1, id: 'canyon', name: 'Canyon Fort', trophies: 300, emoji: '🏜️', colors: ['#b8672e', '#5e2c12', '#ffc27a'], towers: ['mine', 'flame'], troops: ['knights'], maps: ['canyon'] },
   { index: 2, id: 'frost', name: 'Frost Keep', trophies: 700, emoji: '❄️', colors: ['#3f8fd1', '#163a66', '#bfe8ff'], towers: ['tesla', 'venom'], troops: ['healers'], maps: ['crossroads'] },
   { index: 3, id: 'thunder', name: 'Thunder Peak', trophies: 1200, emoji: '⚡', colors: ['#6d4fd6', '#271a5e', '#ffe066'], towers: ['mortar'], troops: ['splitters'], maps: ['spiral'] },
@@ -84,6 +84,8 @@ export function troopArena(p: PackId): number {
 // ── Cards ────────────────────────────────────────────────────────────────────
 export const TOWER_RARITY: Record<TowerType, Rarity> = {
   archer: 'common',
+  crossbow: 'common',
+  builder: 'rare',
   cannon: 'common',
   frost: 'common',
   sniper: 'rare',
@@ -96,7 +98,7 @@ export const TOWER_RARITY: Record<TowerType, Rarity> = {
   totem: 'legendary',
 };
 
-export const STARTER_TOWERS: TowerType[] = ['archer', 'cannon', 'frost', 'sniper'];
+export const STARTER_TOWERS: TowerType[] = ['archer', 'crossbow', 'builder', 'cannon', 'frost', 'sniper'];
 export const STARTER_TROOPS: PackId[] = ['grunts', 'runners', 'swarm', 'brutes'];
 export const MAX_LOADOUT_TOWERS = 6;
 export const MAX_ARMY = 5;

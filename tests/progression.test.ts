@@ -106,7 +106,7 @@ describe('trophies', () => {
     expect(currentArena(p)).toBe(2);
     expect(softReset(2000, 1500, 0.5)).toBe(1750);
     expect(softReset(1400, 1500, 0.5)).toBe(1400);
-    expect(towerPool(0)).toEqual(['archer', 'cannon', 'frost', 'sniper']);
+    expect(towerPool(0)).toEqual(['archer', 'crossbow', 'builder', 'cannon', 'frost', 'sniper']);
     expect(towerPool(1)).toContain('flame');
   });
 });

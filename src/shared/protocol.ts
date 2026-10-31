@@ -54,6 +54,7 @@ export const EV = {
   moveTower: 'game:moveTower',
   upgradeTower: 'game:upgradeTower',
   sellTower: 'game:sellTower',
+  repairTower: 'game:repairTower',
   setTargeting: 'game:setTargeting',
   sendTroops: 'game:sendTroops',
   ready: 'game:ready',
@@ -264,7 +265,10 @@ export type Fx =
   | { k: 'sell'; x: number; y: number; v: number }
   | { k: 'wave'; wave: number; boss: boolean }
   | { k: 'flame'; x: number; y: number; a: number; r: number; c: number }
-  | { k: 'shieldup'; x: number; y: number; r: number };
+  | { k: 'shieldup'; x: number; y: number; r: number }
+  | { k: 'towerhit'; x: number; y: number; n: number }
+  | { k: 'towerdown'; x: number; y: number }
+  | { k: 'repair'; x: number; y: number };
 
 export interface TowerSnap {
   id: number;
@@ -280,12 +284,18 @@ export interface TowerSnap {
   freeMove: boolean;
   /** Card-level stat multiplier already applied by the sim. 1 means a level-1 card. */
   mult: number;
+  hp: number;
+  maxHp: number;
 }
 
 /** [id, typeIndex, x, y, hpFrac, slowed(0|1)] */
 export type EnemyTuple = [number, number, number, number, number, number];
 /** [id, x, y, kind(0 cannon, 1 mortar)] */
 export type ShellTuple = [number, number, number, number];
+/** [towerId, currentHp, maxHp] */
+export type TowerHpTuple = [number, number, number];
+/** [hutTowerId, workerX, workerY, targetTowerId, repairing(0|1)] */
+export type BuilderTuple = [number, number, number, number, number];
 
 export interface BoardSnap {
   id: number;
@@ -302,6 +312,8 @@ export interface BoardSnap {
   beams: number[];
   /** ids of towers currently buffed by a War Totem */
   buffed: number[];
+  towerHp: TowerHpTuple[];
+  builders: BuilderTuple[];
   fx: Fx[];
 }
 
@@ -428,6 +440,7 @@ export interface ClientToServerEvents {
   [EV.moveTower]: (p: MoveTowerIntent, ack?: AckFn) => void;
   [EV.upgradeTower]: (p: TowerRefIntent, ack?: AckFn) => void;
   [EV.sellTower]: (p: TowerRefIntent, ack?: AckFn) => void;
+  [EV.repairTower]: (p: TowerRefIntent, ack?: AckFn<{ cost?: number }>) => void;
   [EV.setTargeting]: (p: SetTargetingIntent, ack?: AckFn) => void;
   [EV.sendTroops]: (p: SendTroopsIntent, ack?: AckFn) => void;
   [EV.ready]: (p: { value?: boolean }, ack?: AckFn) => void;

@@ -1,6 +1,6 @@
 // Shared UI pieces: icons, thumbnails, toasts, modals, chat.
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { DIFFICULTY, MODE_INFO, PLAYER_COLORS } from '../../shared/config';
+import { DIFFICULTY, ENEMIES, MODE_INFO, PLAYER_COLORS } from '../../shared/config';
 import { MAPS } from '../../shared/maps';
 import { EV, type ChatMsg, type InviteInfo, type PresenceStatus } from '../../shared/protocol';
 import type { EnemyType, MapId, TowerType } from '../../shared/types';
@@ -39,8 +39,9 @@ export function EnemyIcon({ type, size = 22 }: { type: EnemyType; size?: number 
     const ctx = c.getContext('2d')!;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, size, size);
-    const scale = type === 'warlord' ? size * 0.95 : type === 'swarm' ? size * 2.2 : size * 1.5;
-    drawEnemy(ctx, type, size / 2, size / 2 + (type === 'warlord' ? size * 0.1 : 0), scale, 0, 1, 0, 0, false);
+    const def = ENEMIES[type];
+    const scale = def.boss ? size * 0.9 : type === 'swarm' || type === 'bat' ? size * 2.1 : size * 1.45;
+    drawEnemy(ctx, type, size / 2, size / 2 + (def.boss ? size * 0.14 : def.movement === 'air' ? size * 0.12 : 0), scale, 0, 1, 0, 0, false);
   }, [type, size, theme]);
   return <canvas ref={ref} style={{ width: size, height: size, display: 'block' }} />;
 }
