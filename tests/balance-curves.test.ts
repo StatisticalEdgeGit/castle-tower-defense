@@ -49,7 +49,7 @@ describe('send and upgrade curves', () => {
   });
 
   it('every attacking upgrade adds meaningful practical road coverage', () => {
-    for (const tower of Object.values(TOWERS).filter((t) => t.attacks)) {
+    for (const tower of Object.values(TOWERS).filter((t) => t.attacks && !t.groundTarget)) {
       const averages = tower.levels.map((level) => {
         let road = 0;
         let squares = 0;

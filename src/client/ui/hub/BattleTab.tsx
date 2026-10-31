@@ -19,7 +19,7 @@ const MODES: { id: BattleMode; icon: string; label: string; sub: string; account
   { id: 'team', icon: '🛡️', label: 'Ranked 2v2', sub: 'solo or with a friend', account: true },
   { id: 'campaign', icon: '🗺️', label: 'Co-op Campaign', sub: 'earn ★ on every map', account: true },
   { id: 'endless', icon: '♾️', label: 'Endless Co-op', sub: 'how far can you go?', account: true },
-  { id: 'friendly', icon: '🎉', label: 'Friendly', sub: 'lobbies, codes, links', account: false },
+  { id: 'friendly', icon: '🧪', label: 'Sandbox', sub: 'all turrets · any map', account: false },
 ];
 
 function loadMode(): BattleMode {

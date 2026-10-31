@@ -1,8 +1,8 @@
 // Board state: one defended copy of a map (co-op: one shared board; FFA: one per player;
 // 2v2: one per team).
 import type { Fx } from '../../shared/protocol';
-import type { EnemyDef } from '../../shared/config';
-import { tileAt, TILE_BUILDABLE, type GameMap } from '../../shared/maps';
+import { TOWERS, type EnemyDef } from '../../shared/config';
+import { isRoadAdjacent, tileAt, TILE_BUILDABLE, type GameMap } from '../../shared/maps';
 import type { EnemyType, TargetMode, TowerType } from '../../shared/types';
 
 export interface Enemy {
@@ -83,6 +83,9 @@ export interface Tower {
   builderY: number;
   builderTarget: number;
   builderRepairing: boolean;
+  /** Persistent impact coordinate used by manually aimed towers. */
+  targetX: number;
+  targetY: number;
 }
 
 export interface Shell {
@@ -100,6 +103,9 @@ export interface Shell {
   homing: boolean;
   /** 0 = cannon shell, 1 = mortar shell (client visuals) */
   kind: number;
+  slow: number;
+  slowDuration: number;
+  knockback: number;
 }
 
 export interface QueuedSpawn {
@@ -155,12 +161,13 @@ export function createBoard(id: number, map: GameMap, defenders: string[], lives
 }
 
 /** Returns an error string if a tower cannot be placed at (tx, ty), otherwise null. */
-export function placementError(board: Board, tx: number, ty: number): string | null {
+export function placementError(board: Board, tx: number, ty: number, type?: TowerType): string | null {
   if (!Number.isInteger(tx) || !Number.isInteger(ty)) return 'Invalid tile';
   if (tx < 0 || ty < 0 || tx >= board.map.width || ty >= board.map.height) return 'Out of bounds';
   const t = tileAt(board.map, tx, ty);
   if (t !== TILE_BUILDABLE) return t === 1 ? "Can't build on the path" : "Can't build there";
   if (board.tileTower.has(ty * board.map.width + tx)) return 'Tile occupied';
+  if (type && TOWERS[type].roadside && !isRoadAdjacent(board.map, tx, ty)) return 'Must be placed directly beside the road';
   return null;
 }
 

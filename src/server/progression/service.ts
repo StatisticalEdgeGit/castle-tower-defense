@@ -427,15 +427,32 @@ export class ProgressionService {
   private installRoomHooks(): void {
     const rooms = this.ctx.rooms;
     rooms.hooks = {
-      memberInfo: (m: RoomMember) => {
+      memberInfo: (room: Room, m: RoomMember) => {
         const bot = this.mm.bots.get(m.id);
         if (bot) return { loadout: bot.loadout, level: bot.level, icon: bot.icon };
+        if (room.sandbox) {
+          const p = m.guest ? null : this.profile(m.id);
+          return { loadout: TOWER_TYPES.slice(), level: p ? levelInfo(p.xp).level : 1, icon: p?.icon ?? 'shield' };
+        }
         if (m.guest) return { loadout: CLASSIC_TOWERS.slice(), level: 1, icon: 'shield' };
         const p = this.profile(m.id);
         return p ? { loadout: p.loadout.slice(), level: levelInfo(p.xp).level, icon: p.icon } : { loadout: CLASSIC_TOWERS.slice(), level: 1, icon: 'shield' };
       },
       seatFor: (room: Room, m: RoomMember) => {
         if (m.bot) return {};
+        if (room.sandbox) {
+          const p = m.guest ? null : this.profile(m.id);
+          const levels: Partial<Record<TowerType, number>> = {};
+          for (const t of TOWER_TYPES) levels[t] = room.equalLevels ? EQUAL_LEVEL : (p?.cards[t]?.level ?? 1);
+          return {
+            loadout: TOWER_TYPES.slice(),
+            troops: PACK_IDS.slice(),
+            cardLevels: levels,
+            icon: p?.icon ?? 'shield',
+            level: p ? levelInfo(p.xp).level : 1,
+            emotes: p?.emotes.slice() ?? STARTER_EMOTES.slice(),
+          };
+        }
         if (m.guest) {
           const levels: Partial<Record<TowerType, number>> = {};
           for (const t of CLASSIC_TOWERS) levels[t] = room.equalLevels ? EQUAL_LEVEL : 1;
@@ -453,6 +470,7 @@ export class ProgressionService {
         };
       },
       validateSettings: (user, s) => {
+        if (s.sandbox) return null;
         if (user.guest) return null;
         const p = this.profile(user.id);
         if (!p || s.mode !== 'coop') return null;
@@ -471,6 +489,7 @@ export class ProgressionService {
   }
 
   private afterMatch(room: Room, results: MatchResults, match: Match): void {
+    if (room.sandbox) return;
     const humans = results.players.filter((p) => !p.guest && !p.bot);
     // opponent averages use trophies from BEFORE this match
     const ladder = room.ranked;

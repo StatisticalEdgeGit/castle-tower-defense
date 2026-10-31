@@ -3,6 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { SEND_PACKS } from '../src/shared/config';
 import { MAPS, TILE_BUILDABLE } from '../src/shared/maps';
 import { EV, type MatchResults, type MatchStartInfo, type RoomState, type Snapshot, type SocialState } from '../src/shared/protocol';
+import { TOWER_TYPES } from '../src/shared/types';
 import { connect, get, post, sleep, startTestServer, type Client, type TestServer } from './net-helpers';
 
 let ts: TestServer;
@@ -138,6 +139,18 @@ describe('accounts, friends, invites, rooms and a co-op match', () => {
     // the wave starts (shortened prep) and enemies appear in snapshots
     const s2 = await A.c.waitFor<Snapshot>(EV.matchSnap, (s) => s.wave >= 1 && s.boards[0].enemies.length > 0);
     expect(s2.boards[0].enemies[0]).toHaveLength(6);
+
+    // A speed-up vote notifies the other players, but not the voter.
+    const speedMarks = [A, B, G].map((x) => x.c.mark());
+    expect((await A.c.req(EV.speedVote, { value: true })).ok).toBe(true);
+    const speedText = `${nameA} wants to speed up — press ×2 to agree`;
+    await Promise.all([
+      B.c.waitFor(EV.toast, (t: any) => t.text === speedText, speedMarks[1]),
+      G.c.waitFor(EV.toast, (t: any) => t.text === speedText, speedMarks[2]),
+    ]);
+    expect(A.c.events.some((e) => e.ev === EV.toast && e.i >= speedMarks[0] && e.data.text === speedText)).toBe(false);
+    expect((await A.c.req(EV.speedVote, { value: false })).ok).toBe(true);
+
     // B's presence is now "game"
     const mPresence = A.c.mark();
     await A.c.req(EV.roomChat, { text: 'gl hf' });
@@ -251,6 +264,41 @@ describe('versus sends', () => {
     expect(me.stats.gamesPlayed).toBe(before.gamesPlayed + 1);
     expect(me.stats.wins).toBe(before.wins);
     expect(me.stats.bestCoop['greenfield:normal']).toBe(res.wavesSurvived);
+    await A.c.req(EV.roomLeave);
+  });
+
+  it('sandbox opens every tower and map without changing progression or stats', async () => {
+    const beforeStats = (await get(ts.base, '/api/me', A.token)).stats;
+    const beforeProfile = (await A.c.req(EV.progGet)).profile;
+    const mark = A.c.mark();
+    const created = await A.c.req(EV.roomCreate, {
+      mode: 'coop',
+      mapId: 'spiral',
+      difficulty: 'easy',
+      sandbox: true,
+      equalLevels: true,
+    });
+    expect(created).toMatchObject({ ok: true, room: { sandbox: true, mapId: 'spiral' } });
+    expect(created.room.players[0].loadout).toEqual(TOWER_TYPES);
+
+    expect((await A.c.req(EV.roomStart)).ok).toBe(true);
+    const info = await A.c.waitFor<MatchStartInfo>(EV.matchStart, () => true, mark);
+    expect(info.players[0].loadout).toEqual(TOWER_TYPES);
+    expect(info.players[0].loadout).toContain('logroller');
+    expect(info.players[0].loadout).toContain('catapult');
+
+    ts.srv.rooms.roomOf(A.id)!.match!.fastForward(900);
+    await A.c.waitFor<MatchResults>(EV.matchOver, () => true, mark);
+    await A.c.waitFor<RoomState>(EV.roomState, (r) => r.state === 'waiting' && !!r.lastResults, mark);
+    await sleep(50);
+
+    const afterStats = (await get(ts.base, '/api/me', A.token)).stats;
+    const afterProfile = (await A.c.req(EV.progGet)).profile;
+    expect(afterStats).toEqual(beforeStats);
+    expect(afterProfile.xpInto).toBe(beforeProfile.xpInto);
+    expect(afterProfile.campaign).toEqual(beforeProfile.campaign);
+    expect(afterProfile.drops).toEqual(beforeProfile.drops);
+    expect(A.c.events.some((e) => e.ev === EV.progMatchRewards && e.i >= mark)).toBe(false);
     await A.c.req(EV.roomLeave);
   });
 

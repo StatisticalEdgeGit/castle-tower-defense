@@ -25,6 +25,8 @@ export interface UiState {
   staged: { tx: number; ty: number } | null;
   /** tower being slid to a new square (one free move) */
   moveTowerId: number | null;
+  /** manually aimed tower waiting for the player to click an impact tile */
+  groundTargetTowerId: number | null;
 }
 
 class GameClient {
@@ -37,7 +39,7 @@ class GameClient {
   aims = new Map<number, number>();
   fxEvents: FxEvent[] = [];
   private fxCounter = 0;
-  ui: UiState = { buildType: null, selectedTower: null, sendTarget: null, viewBoard: 0, hover: null, staged: null, moveTowerId: null };
+  ui: UiState = { buildType: null, selectedTower: null, sendTarget: null, viewBoard: 0, hover: null, staged: null, moveTowerId: null, groundTargetTowerId: null };
   private uiListeners = new Set<() => void>();
   private snapListeners = new Set<() => void>();
   snapVersion = 0;
@@ -73,7 +75,7 @@ class GameClient {
       this.aims.clear();
       this.fxEvents = [];
       const me = info.players.find((p) => p.id === myId);
-      this.ui = { buildType: null, selectedTower: null, sendTarget: null, viewBoard: me?.boardId ?? 0, hover: null, staged: null, moveTowerId: null };
+      this.ui = { buildType: null, selectedTower: null, sendTarget: null, viewBoard: me?.boardId ?? 0, hover: null, staged: null, moveTowerId: null, groundTargetTowerId: null };
       this.emitUi();
     }
   }
@@ -98,6 +100,7 @@ class GameClient {
           if (!this.findTower(this.ui.selectedTower)) this.setUi({ selectedTower: null });
         }
         if (this.ui.moveTowerId !== null && !this.findTower(this.ui.moveTowerId)) this.setUi({ moveTowerId: null, staged: null });
+        if (this.ui.groundTargetTowerId !== null && !this.findTower(this.ui.groundTargetTowerId)) this.setUi({ groundTargetTowerId: null });
       }
       const towerList = this.towers.get(b.id);
       if (towerList) {

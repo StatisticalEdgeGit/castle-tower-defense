@@ -23,6 +23,8 @@ export const TOWER_COLORS: Record<TowerType, { base: string; dark: string; accen
   venom: { base: '#58b958', dark: '#24502a', accent: '#c6ff6b' },
   prism: { base: '#9ad7ff', dark: '#283e6b', accent: '#ffffff' },
   totem: { base: '#a0522d', dark: '#4f2512', accent: '#ff6b6b' },
+  logroller: { base: '#9a6137', dark: '#3d2415', accent: '#e8bd75' },
+  catapult: { base: '#7b5734', dark: '#302014', accent: '#e9cf8a' },
 };
 
 export const ENEMY_COLORS: Record<EnemyType, string> = {
@@ -366,6 +368,71 @@ export function drawTower(ctx: CanvasRenderingContext2D, type: TowerType, x: num
       ctx.fill();
       ctx.fillStyle = c.accent;
       ctx.fillRect(-s * 0.08, -s * 0.16, s * 0.05, s * 0.32);
+      break;
+    }
+    case 'logroller': {
+      ctx.rotate(o.angle);
+      ctx.fillStyle = c.dark;
+      roundRect(ctx, -s * 0.29, -s * 0.22, s * 0.5, s * 0.44, s * 0.05);
+      ctx.fill();
+      ctx.strokeStyle = c.accent;
+      ctx.lineWidth = Math.max(1.5, s * 0.055);
+      ctx.beginPath();
+      ctx.moveTo(-s * 0.22, -s * 0.18);
+      ctx.lineTo(s * 0.2, -s * 0.18);
+      ctx.moveTo(-s * 0.22, s * 0.18);
+      ctx.lineTo(s * 0.2, s * 0.18);
+      ctx.stroke();
+      ctx.translate(-rec, 0);
+      const grain = ctx.createLinearGradient(-s * 0.02, -s * 0.17, s * 0.3, s * 0.17);
+      grain.addColorStop(0, c.dark);
+      grain.addColorStop(0.35, c.base);
+      grain.addColorStop(0.7, c.accent);
+      grain.addColorStop(1, c.dark);
+      ctx.fillStyle = grain;
+      roundRect(ctx, -s * 0.03, -s * 0.16, s * 0.36, s * 0.32, s * 0.14);
+      ctx.fill();
+      ctx.fillStyle = '#4b2b17';
+      ctx.beginPath();
+      ctx.arc(s * 0.29, 0, s * 0.115, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = c.accent;
+      ctx.lineWidth = Math.max(1, s * 0.025);
+      ctx.beginPath();
+      ctx.arc(s * 0.29, 0, s * 0.065, 0, Math.PI * 2);
+      ctx.stroke();
+      break;
+    }
+    case 'catapult': {
+      ctx.rotate(o.angle);
+      ctx.fillStyle = c.dark;
+      roundRect(ctx, -s * 0.27, -s * 0.24, s * 0.48, s * 0.48, s * 0.06);
+      ctx.fill();
+      ctx.fillStyle = c.base;
+      ctx.fillRect(-s * 0.2, -s * 0.2, s * 0.08, s * 0.4);
+      ctx.fillRect(s * 0.1, -s * 0.2, s * 0.08, s * 0.4);
+      ctx.strokeStyle = c.accent;
+      ctx.lineWidth = Math.max(2, s * 0.065);
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(-s * 0.08, 0);
+      ctx.lineTo(s * (0.26 - (o.recoil ?? 0) * 0.12), 0);
+      ctx.stroke();
+      ctx.fillStyle = '#3a291b';
+      ctx.beginPath();
+      ctx.arc(s * 0.28, 0, s * 0.105, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#22262c';
+      ctx.beginPath();
+      ctx.arc(s * 0.28, 0, s * 0.065, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = '#d7b66b';
+      ctx.lineWidth = Math.max(1, s * 0.025);
+      ctx.beginPath();
+      ctx.moveTo(-s * 0.1, -s * 0.2);
+      ctx.lineTo(s * 0.28, 0);
+      ctx.lineTo(-s * 0.1, s * 0.2);
+      ctx.stroke();
       break;
     }
     case 'venom': {

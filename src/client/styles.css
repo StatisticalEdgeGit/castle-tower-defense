@@ -30,7 +30,15 @@ html,
 body,
 #root {
   height: 100%;
+  width: 100%;
+  min-width: 0;
   margin: 0;
+}
+
+html {
+  /* Keep iOS/Android from enlarging text after rotation and breaking the layout. */
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
 }
 
 body {
@@ -1058,6 +1066,9 @@ select.input {
 
 /* ── game ──────────────────────────────────────────────── */
 .game-root {
+  width: 100%;
+  min-width: 0;
+  height: 100vh;
   height: 100dvh;
   max-height: 100dvh;
   display: flex;
@@ -1708,6 +1719,7 @@ button.pack-card {
     overflow-x: auto;
   }
   .game-root {
+    height: 100vh;
     height: 100dvh;
     height: 100svh;
   }
@@ -1802,45 +1814,6 @@ button.pack-card {
   color: #fff;
   background: #9a3030;
 }
-.wave-scout {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex: none;
-  min-height: 36px;
-  padding: 4px 12px;
-  overflow-x: auto;
-  background: #10182a;
-  border-bottom: 1px solid var(--border);
-  font-size: 13px;
-}
-.scout-title {
-  font-weight: 700;
-  white-space: nowrap;
-}
-.scout-unit {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 1px 8px 1px 2px;
-  border-radius: 999px;
-  background: #0c1322;
-  border: 1px solid var(--border);
-  white-space: nowrap;
-}
-.scout-unit.debut {
-  border-color: #e0b341;
-}
-.scout-new {
-  font-size: 10px;
-  font-weight: 800;
-  letter-spacing: 0.4px;
-  color: #ffd23f;
-}
-.scout-hp {
-  white-space: nowrap;
-  font-variant-numeric: tabular-nums;
-}
 .spend-hint {
   margin-top: 6px;
 }
@@ -1932,11 +1905,6 @@ button.pack-card {
     font-size: 13px;
     padding: 2px 6px;
   }
-  .wave-scout {
-    min-height: 0;
-    padding: 2px 8px;
-    font-size: 12px;
-  }
   .game-body {
     flex-direction: row;
     flex: 1;
@@ -1990,6 +1958,7 @@ button.pack-card {
 @media (orientation: landscape) and (pointer: coarse) and (max-height: 600px) {
   .game-root {
     width: 100vw;
+    height: 100vh;
     height: 100dvh;
     max-height: none;
   }
@@ -2049,11 +2018,11 @@ button.pack-card {
 .hud-stack {
   position: absolute;
   top: 10px;
-  left: 12px;
+  right: 74px;
   z-index: 7;
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
+  align-items: flex-end;
   gap: 6px;
   pointer-events: none;
 }
@@ -2235,14 +2204,6 @@ button.pack-card {
   flex-direction: column;
   gap: 10px;
 }
-.dock-panel .wave-scout {
-  flex-wrap: wrap;
-  min-height: 0;
-  padding: 0;
-  background: transparent;
-  border: none;
-  overflow: visible;
-}
 .menu-drawer {
   display: flex;
   flex-direction: column;
@@ -2358,6 +2319,9 @@ button.pack-card {
 }
 
 @media (max-width: 760px) {
+  .hud-stack {
+    right: 66px;
+  }
   .hud-round {
     font-size: 18px;
   }
@@ -2398,7 +2362,7 @@ button.pack-card {
 @media (max-height: 520px) and (orientation: landscape) {
   .hud-stack {
     top: 6px;
-    left: 6px;
+    right: 60px;
   }
   .hud-plate {
     padding: 4px 8px;
@@ -2417,5 +2381,82 @@ button.pack-card {
   .face-btn {
     width: 40px;
     height: 40px;
+  }
+}
+
+/* Compact landscape phones (including older 568x320/640x360 devices). */
+@media (orientation: landscape) and (pointer: coarse) and (max-height: 430px) {
+  .hud-stack {
+    top: max(4px, env(safe-area-inset-top));
+    right: calc(max(4px, env(safe-area-inset-right)) + 42px);
+    gap: 3px;
+  }
+  .hud-plate {
+    min-width: 104px;
+    padding: 3px 7px 4px;
+    border-radius: 11px;
+  }
+  .hud-round,
+  .hud-lives {
+    font-size: 14px;
+  }
+  .hud-money {
+    font-size: 18px;
+  }
+  .hud-income,
+  .hud-max,
+  .hud-next,
+  .hud-note {
+    font-size: 10px;
+  }
+  .options-dock {
+    top: max(4px, env(safe-area-inset-top));
+    right: max(4px, env(safe-area-inset-right));
+    bottom: max(4px, env(safe-area-inset-bottom));
+    gap: 4px;
+  }
+  .options-rail {
+    gap: 5px;
+  }
+  .map-btn,
+  .face-btn {
+    width: 36px;
+    height: 36px;
+    border-width: 2px;
+  }
+  .face-rail {
+    top: calc(max(4px, env(safe-area-inset-top)) + 70px);
+    left: max(4px, env(safe-area-inset-left));
+    gap: 5px;
+  }
+  .dock-panel {
+    width: min(280px, calc(100vw - 52px - env(safe-area-inset-left) - env(safe-area-inset-right)));
+    padding: 6px;
+    border-radius: 12px;
+  }
+  .dock-menu {
+    gap: 6px;
+  }
+  .gpanel {
+    padding: 6px;
+  }
+  .game-chat {
+    left: max(4px, env(safe-area-inset-left));
+    bottom: max(4px, env(safe-area-inset-bottom));
+    width: min(210px, 42%);
+  }
+  .map-zoom {
+    right: max(4px, env(safe-area-inset-right));
+    bottom: max(4px, env(safe-area-inset-bottom));
+    border-radius: 9px;
+  }
+  .map-zoom button {
+    min-width: 30px;
+    height: 30px;
+    padding: 0 5px;
+    font-size: 17px;
+  }
+  .map-zoom .map-zoom-level {
+    min-width: 46px;
   }
 }

@@ -12,9 +12,13 @@
 }
 
 .hub {
+  width: 100%;
+  min-width: 0;
   min-height: 100vh;
+  min-height: 100dvh;
   display: flex;
   flex-direction: column;
+  overflow-x: clip;
 }
 .hub-content {
   flex: 1;
@@ -1651,11 +1655,11 @@
     display: revert;
   }
   .hub-content {
-    padding: 12px 12px calc(var(--hub-nav-h) + 16px);
+    padding: 12px max(12px, env(safe-area-inset-right)) calc(var(--hub-nav-h) + 16px) max(12px, env(safe-area-inset-left));
   }
   .hudbar {
     gap: 8px;
-    padding: 8px 10px;
+    padding: max(8px, env(safe-area-inset-top)) max(10px, env(safe-area-inset-right)) 8px max(10px, env(safe-area-inset-left));
   }
   .hudbar .btn {
     padding: 6px 8px;
@@ -1698,7 +1702,7 @@
   .bottom-nav {
     height: auto;
     gap: 4px;
-    padding: 6px 6px calc(6px + env(safe-area-inset-bottom, 0px));
+    padding: 6px max(6px, env(safe-area-inset-right)) calc(6px + env(safe-area-inset-bottom, 0px)) max(6px, env(safe-area-inset-left));
     background: rgba(12, 17, 28, 0.96);
     align-items: stretch;
   }
@@ -1736,5 +1740,131 @@
   .subtabs,
   .pass-head {
     flex-wrap: wrap;
+  }
+}
+
+/* Preserve the same usable composition on narrow 320-420px phones. */
+@media (max-width: 420px) {
+  :root {
+    --hub-nav-h: calc(62px + env(safe-area-inset-bottom, 0px));
+  }
+  .hub-content {
+    padding: 8px max(8px, env(safe-area-inset-right)) calc(var(--hub-nav-h) + 12px) max(8px, env(safe-area-inset-left));
+  }
+  .hudbar {
+    gap: 5px;
+    padding: max(6px, env(safe-area-inset-top)) max(7px, env(safe-area-inset-right)) 6px max(7px, env(safe-area-inset-left));
+  }
+  .pchip {
+    min-width: 0;
+    max-width: 100%;
+    gap: 7px;
+    padding-right: 5px;
+  }
+  .pchip > div:last-child {
+    min-width: 0;
+  }
+  .pchip b {
+    display: block;
+    max-width: 112px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .picon {
+    width: 38px;
+    height: 38px;
+    font-size: 20px;
+  }
+  .xpbar {
+    width: 58px;
+  }
+  .xpbar + .dim {
+    display: none;
+  }
+  .cur {
+    gap: 4px;
+    padding: 3px 6px 3px 3px;
+    font-size: 12px;
+  }
+  .cur .ic {
+    width: 20px;
+    height: 20px;
+    font-size: 12px;
+  }
+  .hub-content .panel {
+    padding: 12px;
+  }
+  .arena-banner {
+    padding: 12px;
+  }
+  .arena-emoji {
+    font-size: 44px;
+  }
+  .arena-name {
+    font-size: 21px;
+  }
+  .card-grid {
+    grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+    gap: 8px;
+  }
+  .deck {
+    gap: 7px;
+  }
+  .deck-slot {
+    width: 82px;
+    min-height: 96px;
+  }
+  .pass-grid {
+    grid-template-columns: 44px minmax(0, 1fr) minmax(0, 1fr);
+    gap: 4px;
+  }
+  .pass-cell {
+    align-content: center;
+    flex-wrap: wrap;
+    gap: 4px;
+    min-width: 0;
+    padding: 6px;
+  }
+  .pass-cell .reward-pill {
+    max-width: 100%;
+    padding-inline: 6px;
+    overflow-wrap: anywhere;
+  }
+  .subtabs {
+    gap: 5px;
+  }
+  .subtab {
+    flex: 1 1 auto;
+    min-width: 0;
+    padding: 7px 9px;
+    font-size: 12px;
+  }
+  .bottom-nav {
+    gap: 3px;
+    padding-top: 5px;
+  }
+  .nav-btn,
+  .nav-btn.battle {
+    height: 50px;
+    border-radius: 10px;
+    font-size: 9px;
+  }
+  .nav-btn .ni,
+  .nav-btn.battle .ni {
+    font-size: 16px;
+  }
+}
+
+@media (orientation: landscape) and (pointer: coarse) and (max-height: 430px) {
+  .emote-wheel {
+    bottom: 48px;
+    grid-template-columns: repeat(4, minmax(0, 52px));
+    gap: 5px;
+    padding: 8px;
+  }
+  .emote-wheel button {
+    height: 52px;
+    font-size: 23px;
   }
 }

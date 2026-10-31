@@ -1,6 +1,6 @@
 // Client-side placement rules and the range preview shared by the board and the confirm bar.
 import { ECONOMY, TOWERS } from '../../shared/config';
-import { TILE_BUILDABLE } from '../../shared/maps';
+import { isRoadAdjacent, TILE_BUILDABLE } from '../../shared/maps';
 import { pathCoverage, type PathCoverage } from '../../shared/reach';
 import type { TowerType } from '../../shared/types';
 import { game, type UiState } from './gameState';
@@ -42,6 +42,7 @@ export function towerRadii(type: TowerType, level: number): Radii {
   const def = TOWERS[type];
   const lvl = def.levels[Math.max(0, Math.min(2, level - 1))];
   const max = def.levels[2];
+  if (def.groundTarget) return { range: 0, minRange: 0, maxRange: 0, kind: 'none' };
   if (def.support) {
     return {
       range: lvl.buffRadius ?? lvl.range,
@@ -74,6 +75,7 @@ export function placementCheck(
   if (map.tiles[ty * map.width + tx] !== TILE_BUILDABLE) return { ok: false, reason: "Can't build here" };
   const occ = game.towerAt(boardId, tx, ty);
   if (occ && occ.id !== opts.ignoreTowerId) return { ok: false, reason: 'Occupied' };
+  if (TOWERS[type].roadside && !isRoadAdjacent(map, tx, ty)) return { ok: false, reason: 'Must be directly beside the road' };
   if (!opts.moving && type === 'mine') {
     const mines = (game.towers.get(boardId) ?? []).filter((t) => t.owner === game.myId && t.type === 'mine').length;
     if (mines >= ECONOMY.maxMinesPerPlayer) return { ok: false, reason: 'Max 3 mines' };

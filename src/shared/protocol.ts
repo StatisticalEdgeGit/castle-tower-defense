@@ -56,6 +56,7 @@ export const EV = {
   sellTower: 'game:sellTower',
   repairTower: 'game:repairTower',
   setTargeting: 'game:setTargeting',
+  setGroundTarget: 'game:setGroundTarget',
   sendTroops: 'game:sendTroops',
   ready: 'game:ready',
   speedVote: 'game:speedVote',
@@ -193,6 +194,8 @@ export interface RoomState {
   equalLevels: boolean;
   /** co-op without a final wave */
   endless: boolean;
+  /** unrestricted custom play: all towers/troops and maps, with no progression rewards */
+  sandbox: boolean;
   ranked: RankedMode | null;
 }
 
@@ -204,6 +207,7 @@ export interface PublicRoomInfo {
   players: number;
   maxPlayers: number;
   hostName: string;
+  sandbox: boolean;
 }
 
 export interface RoomSettingsPatch {
@@ -268,7 +272,8 @@ export type Fx =
   | { k: 'shieldup'; x: number; y: number; r: number }
   | { k: 'towerhit'; x: number; y: number; n: number }
   | { k: 'towerdown'; x: number; y: number }
-  | { k: 'repair'; x: number; y: number };
+  | { k: 'repair'; x: number; y: number }
+  | { k: 'log'; pts: number[]; width: number };
 
 export interface TowerSnap {
   id: number;
@@ -286,11 +291,14 @@ export interface TowerSnap {
   mult: number;
   hp: number;
   maxHp: number;
+  /** Persistent impact point for manually aimed towers (tile coordinates). */
+  targetX: number;
+  targetY: number;
 }
 
 /** [id, typeIndex, x, y, hpFrac, slowed(0|1)] */
 export type EnemyTuple = [number, number, number, number, number, number];
-/** [id, x, y, kind(0 cannon, 1 mortar)] */
+/** [id, x, y, kind(0 cannon, 1 mortar, 2 catapult)] */
 export type ShellTuple = [number, number, number, number];
 /** [towerId, currentHp, maxHp] */
 export type TowerHpTuple = [number, number, number];
@@ -385,6 +393,11 @@ export interface SetTargetingIntent {
   towerId: number;
   mode: TargetMode;
 }
+export interface SetGroundTargetIntent {
+  towerId: number;
+  tx: number;
+  ty: number;
+}
 export interface SendTroopsIntent {
   packId: PackId;
   targetPlayerId?: string;
@@ -417,7 +430,7 @@ export interface ServerToClientEvents {
 
 export interface ClientToServerEvents {
   [EV.roomCreate]: (
-    p: { mode: GameMode; mapId: MapId; difficulty: Difficulty; isPublic?: boolean; endless?: boolean; equalLevels?: boolean },
+    p: { mode: GameMode; mapId: MapId; difficulty: Difficulty; isPublic?: boolean; endless?: boolean; equalLevels?: boolean; sandbox?: boolean },
     ack: AckFn<{ room: RoomState }>,
   ) => void;
   [EV.roomJoin]: (p: { code: string }, ack: AckFn<{ room: RoomState }>) => void;
@@ -442,6 +455,7 @@ export interface ClientToServerEvents {
   [EV.sellTower]: (p: TowerRefIntent, ack?: AckFn) => void;
   [EV.repairTower]: (p: TowerRefIntent, ack?: AckFn<{ cost?: number }>) => void;
   [EV.setTargeting]: (p: SetTargetingIntent, ack?: AckFn) => void;
+  [EV.setGroundTarget]: (p: SetGroundTargetIntent, ack?: AckFn) => void;
   [EV.sendTroops]: (p: SendTroopsIntent, ack?: AckFn) => void;
   [EV.ready]: (p: { value?: boolean }, ack?: AckFn) => void;
   [EV.speedVote]: (p: { value?: boolean }, ack?: AckFn) => void;

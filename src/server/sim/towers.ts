@@ -104,6 +104,9 @@ export function updateBuilders(board: Board, dt: number): void {
 }
 
 function pickTarget(board: Board, t: Tower, lvl: TowerLevel): Enemy | null {
+  if (TOWERS[t.type].groundTarget) {
+    return selectTarget(board, t.targetX, t.targetY, lvl.splash ?? 1, 'first', 0, (e) => canTowerTarget(t.type, e));
+  }
   if (t.type === 'venom') {
     // spread poison: prefer targets that are not yet at max stacks
     const max = lvl.poisonMaxStacks ?? 1;
@@ -125,6 +128,7 @@ export function updateTowers(ctx: SimContext, board: Board, dt: number): void {
     if (!def.attacks) continue;
     const lvl = def.levels[t.level - 1];
     const target = pickTarget(board, t, lvl);
+    if (def.groundTarget) t.angle = Math.atan2(t.targetY - t.y, t.targetX - t.x);
     if (def.beam) {
       updateBeam(ctx, board, t, lvl, target, dt);
       continue;
@@ -136,7 +140,7 @@ export function updateTowers(ctx: SimContext, board: Board, dt: number): void {
       continue;
     }
     t.targetId = target.id;
-    t.angle = Math.atan2(target.y - t.y, target.x - t.x);
+    if (!def.groundTarget) t.angle = Math.atan2(target.y - t.y, target.x - t.x);
     if (t.cooldown > 0) continue;
     t.cooldown += 1 / (lvl.rate * (1 + t.buffRate));
     if (t.cooldown < 0) t.cooldown = 0;
@@ -239,12 +243,27 @@ export function fire(ctx: SimContext, board: Board, t: Tower, target: Enemy): vo
       board.fx.push({ k: 'shot', t: 'venom', x1: r2(t.x), y1: r2(t.y), x2: r2(target.x), y2: r2(target.y) });
       break;
     }
+    case 'logroller': {
+      const end = target.dist;
+      const start = Math.max(0, end - (lvl.pierceDistance ?? 4.5));
+      const pts = pathPolyline(board, target.path, start, end);
+      const victims = board.enemies
+        .filter((e) => e.alive && e.def.movement === 'ground' && (e === target || distanceToPolylineSq(e.x, e.y, pts) <= 0.55 ** 2))
+        .sort((a, b) => b.dist - a.dist || a.id - b.id);
+      for (const v of victims) {
+        applyImpactControl(board, v, lvl.slow ?? 0, lvl.slowDuration ?? 1, lvl.knockback ?? 0);
+        hit(ctx, board, t, v, dmg, false);
+      }
+      board.fx.push({ k: 'log', pts, width: 0.58 });
+      break;
+    }
     case 'cannon':
-    case 'mortar': {
+    case 'mortar':
+    case 'catapult': {
       const speed = def.projectileSpeed ?? 7;
-      let tx = target.x;
-      let ty = target.y;
-      if (!def.homing) {
+      let tx = def.groundTarget ? t.targetX : target.x;
+      let ty = def.groundTarget ? t.targetY : target.y;
+      if (!def.homing && !def.groundTarget) {
         // lob the shell to where the target will be when it lands
         const flight = Math.hypot(target.x - t.x, target.y - t.y) / speed;
         const ahead = target.dist + target.speed * (1 - target.slowAmt) * flight;
@@ -264,7 +283,10 @@ export function fire(ctx: SimContext, board: Board, t: Tower, target: Enemy): vo
         splash: lvl.splash ?? 1,
         tower: t,
         homing: def.homing !== false,
-        kind: t.type === 'mortar' ? 1 : 0,
+        kind: t.type === 'catapult' ? 2 : t.type === 'mortar' ? 1 : 0,
+        slow: lvl.slow ?? 0,
+        slowDuration: lvl.slowDuration ?? 0,
+        knockback: lvl.knockback ?? 0,
       };
       board.shells.push(shell);
       break;
@@ -274,6 +296,52 @@ export function fire(ctx: SimContext, board: Board, t: Tower, target: Enemy): vo
     case 'totem':
       break;
   }
+}
+
+/** A short, rounded polyline that lets the client animate a log around road bends. */
+function pathPolyline(board: Board, pathIndex: number, start: number, end: number): number[] {
+  const path = board.map.paths[pathIndex];
+  const pts: number[] = [];
+  const step = 0.45;
+  for (let d = start; d < end; d += step) {
+    const p = pointOnPath(path, d);
+    pts.push(r2(p.x), r2(p.y));
+  }
+  const p = pointOnPath(path, end);
+  pts.push(r2(p.x), r2(p.y));
+  return pts;
+}
+
+function distanceToPolylineSq(x: number, y: number, pts: number[]): number {
+  let best = Infinity;
+  for (let i = 0; i + 3 < pts.length; i += 2) {
+    const ax = pts[i];
+    const ay = pts[i + 1];
+    const bx = pts[i + 2];
+    const by = pts[i + 3];
+    const dx = bx - ax;
+    const dy = by - ay;
+    const len2 = dx * dx + dy * dy;
+    const t = len2 <= 1e-9 ? 0 : Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / len2));
+    const qx = ax + dx * t;
+    const qy = ay + dy * t;
+    best = Math.min(best, (x - qx) ** 2 + (y - qy) ** 2);
+  }
+  return best;
+}
+
+/** Slow, push backwards along the path, and interrupt any active siege attack. */
+function applyImpactControl(board: Board, e: Enemy, slow: number, duration: number, knockback: number): void {
+  applySlow(e, slow, duration);
+  const effectivePush = knockback * (1 - (e.def.slowResist ?? 0));
+  if (!(effectivePush > 0)) return;
+  e.dist = Math.max(0, e.dist - effectivePush);
+  const p = pointOnPath(board.map.paths[e.path], e.dist);
+  e.x = p.x;
+  e.y = p.y;
+  e.towerTarget = -1;
+  e.towerAttackCooldown = 0;
+  e.towerScanCooldown = 0;
 }
 
 /** Enemies within `range` whose bearing from the tower is within ±cone of `angle`. */
@@ -306,6 +374,16 @@ export function explode(ctx: SimContext, board: Board, tower: Tower, x: number, 
   return victims.length;
 }
 
+function controlledExplosion(ctx: SimContext, board: Board, shell: Shell): number {
+  const victims = enemiesInRadius(board, shell.tx, shell.ty, shell.splash, (e) => canTowerTarget(shell.tower.type, e));
+  for (const v of victims) {
+    applyImpactControl(board, v, shell.slow, shell.slowDuration, shell.knockback);
+    hit(ctx, board, shell.tower, v, shell.damage, false);
+  }
+  board.fx.push({ k: 'boom', x: r2(shell.tx), y: r2(shell.ty), r: shell.splash });
+  return victims.length;
+}
+
 export function updateShells(ctx: SimContext, board: Board, dt: number): void {
   if (board.shells.length === 0) return;
   const byId = new Map<number, Enemy>();
@@ -324,7 +402,8 @@ export function updateShells(ctx: SimContext, board: Board, dt: number): void {
     const dist = Math.hypot(dx, dy);
     const step = s.speed * dt;
     if (dist <= step) {
-      explode(ctx, board, s.tower, s.tx, s.ty, s.splash, s.damage);
+      if (s.slow > 0 || s.knockback > 0) controlledExplosion(ctx, board, s);
+      else explode(ctx, board, s.tower, s.tx, s.ty, s.splash, s.damage);
       continue;
     }
     s.x += (dx / dist) * step;

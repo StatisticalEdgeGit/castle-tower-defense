@@ -7,7 +7,7 @@ LAN. Nothing is deployed anywhere.
 
 - Server-authoritative simulation (20 ticks/s) — clients only send intents and render.
 - Accounts, guests, friends with live presence, in-app invites, invite links, public game browser.
-- 4 maps ("levels"), 13 towers × 3 levels, 15 regular enemy types + 5 bosses, 3 difficulties.
+- 4 maps ("levels"), 15 towers × 3 levels, 15 regular enemy types + 5 bosses, 3 difficulties.
 - A Supercell-style meta game: two ranked trophy ladders (Duel 1v1 and Team 2v2) with
   matchmaking + bot backfill, 7 arenas, a Trophy Road, card collection & levels, loadouts,
   reward drops, chests, player levels, daily/weekly quests, a season pass, a daily shop,
@@ -240,10 +240,11 @@ lobbies; everything below needs an account. All numbers live in
   arena milestones.
 
 ### Cards, levels, loadouts
-- 13 towers. New: **Crossbow** (anti-air specialist), **Builder Hut** (mobile automatic repairs), **Flamethrower** (cone + burn, melts swarms), **Mortar** (range 8, min range 2,
+- 15 towers. New: **Crossbow** (anti-air specialist), **Builder Hut** (mobile automatic repairs), **Flamethrower** (cone + burn, melts swarms), **Mortar** (range 8, min range 2,
   huge splash, lobbed shells that lead the target), **Venom** (stacking armour-piercing poison),
   **Prism** (beam that ramps up to ×4–6 on one target), **War Totem** (+15% damage / +10% fire
-  rate to towers within 2 tiles; several totems don't stack).
+  rate to towers within 2 tiles; several totems don't stack), **Log Roller** (roadside-only piercing
+  logs with knockback and slow), and **Catapult** (global, manually aimed heavy splash).
 - Rarities: Common (Archer, Cannon, Frost), Rare (Sniper, Gold Mine, Flamethrower), Epic (Tesla,
   Mortar, Venom), Legendary (Prism, War Totem). Starter set: Archer, Cannon, Frost, Sniper.
 - Card levels 1–10 (copies + coins, Clash-Royale curve; rarer cards need fewer copies). Each
@@ -275,6 +276,8 @@ lobbies; everything below needs an account. All numbers live in
 - **Cosmetics**: profile icons and emotes (4 starter emotes, more from rewards).
 - **Co-op campaign**: 1★ Easy, 2★ Normal, 3★ Hard per map; 2★ unlocks the next map; first-clear
   rewards. **Endless co-op** (unlocks after any 2★) has no final wave and feeds a leaderboard.
+- **Sandbox**: unrestricted custom co-op/FFA/2v2 with every turret and troop, every map and
+  equal levels by default. Sandbox matches do not award stars, trophies, quests or progression.
 - **Leaderboards** (Social tab): Duel, Team and Endless (best run per team composition, per map),
   Global/Friends and This season/All time, top 100 with your own rank pinned.
 

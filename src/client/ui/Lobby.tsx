@@ -140,12 +140,13 @@ function PlayerSlot({ p, room, me }: { p: RoomPlayer; room: RoomState; me: strin
 function Settings({ room, amHost }: { room: RoomState; amHost: boolean }) {
   const set = (patch: object) => void act(EV.roomSettings, patch);
   const profile = useStore((s) => s.profile);
-  const coopLocked = (id: MapId) => room.mode === 'coop' && !room.endless && !!profile && !profile.unlockedMaps.includes(id);
+  const coopLocked = (id: MapId) => !room.sandbox && room.mode === 'coop' && !room.endless && !!profile && !profile.unlockedMaps.includes(id);
   return (
     <div className="panel">
       <div className="panel-title">
         ⚙️ Game settings {!amHost && <span className="count">host controls these</span>}
       </div>
+      {room.sandbox && <div className="callout blue">🧪 Sandbox: all turrets, troops, and maps are available. Progression rewards are disabled.</div>}
       <div className="seg" style={{ marginBottom: 10 }}>
         {(Object.keys(MODE_INFO) as GameMode[]).map((m) => (
           <button key={m} className={room.mode === m ? 'active' : ''} disabled={!amHost} onClick={() => set({ mode: m })}>
@@ -195,9 +196,9 @@ function Settings({ room, amHost }: { room: RoomState; amHost: boolean }) {
         {room.mode === 'coop' && (
           <Switch
             on={room.endless}
-            disabled={!amHost || (!!profile && !profile.endlessUnlocked)}
+            disabled={!amHost || (!room.sandbox && !!profile && !profile.endlessUnlocked)}
             onChange={(v) => set({ endless: v })}
-            label={room.endless ? 'Endless (no final wave)' : profile && !profile.endlessUnlocked ? 'Endless 🔒 (2★ on any map)' : 'Endless off'}
+            label={room.endless ? 'Endless (no final wave)' : !room.sandbox && profile && !profile.endlessUnlocked ? 'Endless 🔒 (2★ on any map)' : 'Endless off'}
           />
         )}
       </div>
@@ -227,6 +228,7 @@ export function Lobby() {
               <div className="row" style={{ marginBottom: 12 }}>
                 <h2>Game lobby</h2>
                 <span className="badge gold">{MODE_INFO[room.mode].label}</span>
+                {room.sandbox && <span className="badge">🧪 Sandbox · all turrets</span>}
                 <span className="badge">{MAPS[room.mapId].name}</span>
                 <span className="badge">{DIFFICULTY[room.difficulty].label}</span>
                 <span className="spacer" />

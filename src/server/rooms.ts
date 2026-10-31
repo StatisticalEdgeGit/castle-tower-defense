@@ -46,6 +46,7 @@ export interface Room {
   isPublic: boolean;
   equalLevels: boolean;
   endless: boolean;
+  sandbox: boolean;
   ranked: RankedMode | null;
   state: 'waiting' | 'playing';
   members: RoomMember[];
@@ -75,9 +76,9 @@ export interface RoomHooks {
   /** called after stats were persisted */
   afterMatch?(room: Room, results: MatchResults, match: Match): void;
   /** lobby display info for a member */
-  memberInfo?(member: RoomMember): MemberInfo;
+  memberInfo?(room: Room, member: RoomMember): MemberInfo;
   /** validate room settings for the host (campaign map locks, endless unlock...) */
-  validateSettings?(user: Identity, s: { mode: GameMode; mapId: MapId; endless: boolean }): string | null;
+  validateSettings?(user: Identity, s: { mode: GameMode; mapId: MapId; endless: boolean; sandbox: boolean }): string | null;
   /** a member is leaving (forfeits in ranked) */
   onLeave?(room: Room, userId: string): void;
 }
@@ -165,7 +166,7 @@ export class RoomManager implements RoomsBridge {
       isPublic: room.isPublic,
       state: room.state,
       players: room.members.map((m) => {
-        const info = this.hooks.memberInfo?.(m) ?? { loadout: CLASSIC_TOWERS.slice(), level: 1, icon: 'shield' };
+        const info = this.hooks.memberInfo?.(room, m) ?? { loadout: CLASSIC_TOWERS.slice(), level: 1, icon: 'shield' };
         return {
           id: m.id,
           name: m.name,
@@ -185,6 +186,7 @@ export class RoomManager implements RoomsBridge {
       lastResults: room.lastResults,
       equalLevels: room.equalLevels,
       endless: room.endless,
+      sandbox: room.sandbox,
       ranked: room.ranked,
     };
   }
@@ -211,6 +213,7 @@ export class RoomManager implements RoomsBridge {
         players: r.members.length,
         maxPlayers: MAX_PLAYERS,
         hostName: r.members.find((m) => m.id === r.hostId)?.name ?? '?',
+        sandbox: r.sandbox,
       }));
   }
 
@@ -257,11 +260,12 @@ export class RoomManager implements RoomsBridge {
   // ── lifecycle ─────────────────────────────────────────────────────────────
   create(
     user: Identity,
-    p: { mode?: unknown; mapId?: unknown; difficulty?: unknown; isPublic?: unknown; endless?: unknown; equalLevels?: unknown },
+    p: { mode?: unknown; mapId?: unknown; difficulty?: unknown; isPublic?: unknown; endless?: unknown; equalLevels?: unknown; sandbox?: unknown },
   ): Result<{ room: RoomState }> {
     if (!p || !isMode(p.mode) || !isMapId(p.mapId) || !isDifficulty(p.difficulty)) return fail('Invalid room settings');
     const endless = p.mode === 'coop' && p.endless === true;
-    const err = this.hooks.validateSettings?.(user, { mode: p.mode, mapId: p.mapId, endless });
+    const sandbox = p.sandbox === true;
+    const err = this.hooks.validateSettings?.(user, { mode: p.mode, mapId: p.mapId, endless, sandbox });
     if (err) return fail(err);
     const cur = this.roomOf(user.id);
     if (cur) this.leave(user.id);
@@ -275,6 +279,7 @@ export class RoomManager implements RoomsBridge {
       isPublic: p.isPublic === true,
       equalLevels: typeof p.equalLevels === 'boolean' ? p.equalLevels : defaultEqualLevels(p.mode),
       endless,
+      sandbox,
       ranked: null,
       state: 'waiting',
       members: [],
@@ -313,6 +318,7 @@ export class RoomManager implements RoomsBridge {
       isPublic: false,
       equalLevels: false,
       endless: false,
+      sandbox: false,
       ranked,
       state: 'waiting',
       members: seats.map((s, i) => this.newMember(s.user, i, s.team, s.bot)),
@@ -423,7 +429,7 @@ export class RoomManager implements RoomsBridge {
     if (room.state !== 'waiting') return fail('Game in progress');
     if (room.ranked) return fail('Ranked settings are fixed');
     if (!patch || typeof patch !== 'object') return fail('Bad request');
-    const next = { mode: room.mode, mapId: room.mapId, endless: room.endless };
+    const next = { mode: room.mode, mapId: room.mapId, endless: room.endless, sandbox: room.sandbox };
     if (patch.mode !== undefined) {
       if (!isMode(patch.mode)) return fail('Unknown mode');
       next.mode = patch.mode;
@@ -441,7 +447,7 @@ export class RoomManager implements RoomsBridge {
     }
     if (next.mode !== room.mode) {
       room.mode = next.mode;
-      room.equalLevels = defaultEqualLevels(room.mode);
+      room.equalLevels = room.sandbox || defaultEqualLevels(room.mode);
       if (room.mode === 'teams') room.members.forEach((m, i) => (m.team = i % 2));
     }
     room.mapId = next.mapId;
@@ -561,16 +567,18 @@ export class RoomManager implements RoomsBridge {
   }
 
   private onMatchEnd(room: Room, results: MatchResults, match: Match): void {
-    // persist stats for account players
-    for (const p of results.players) {
-      if (p.guest || p.bot) continue;
-      const u = this.db.userById(p.id);
-      if (!u) continue;
-      u.stats.gamesPlayed++;
-      if (results.winners.includes(p.id)) u.stats.wins++;
-      if (results.mode === 'coop' && !results.endless) {
-        const key = `${results.mapId}:${results.difficulty}`;
-        u.stats.bestCoop[key] = Math.max(u.stats.bestCoop[key] ?? 0, results.wavesSurvived);
+    // Sandbox is deliberately separate from progression and lifetime stats.
+    if (!room.sandbox) {
+      for (const p of results.players) {
+        if (p.guest || p.bot) continue;
+        const u = this.db.userById(p.id);
+        if (!u) continue;
+        u.stats.gamesPlayed++;
+        if (results.winners.includes(p.id)) u.stats.wins++;
+        if (results.mode === 'coop' && !results.endless) {
+          const key = `${results.mapId}:${results.difficulty}`;
+          u.stats.bestCoop[key] = Math.max(u.stats.bestCoop[key] ?? 0, results.wavesSurvived);
+        }
       }
     }
     this.db.save();

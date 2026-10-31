@@ -4,7 +4,7 @@ import crypto from 'node:crypto';
 import { TICK_RATE } from '../shared/config';
 import { EV, type MatchPlayerInfo, type MatchResults, type MatchStartInfo } from '../shared/protocol';
 import type { PackId, TargetMode, TowerType } from '../shared/types';
-import type { IO, Result, Sock } from './io';
+import { userChannel, type IO, type Result, type Sock } from './io';
 import { GameSim, type Ruleset, type SimPlayerInit } from './sim/game';
 
 export interface MatchSeat {
@@ -201,6 +201,11 @@ export class Match {
     return this.sim.setTargeting(uid, p.towerId, p.mode as TargetMode);
   }
 
+  setGroundTarget(uid: string, p: { towerId?: unknown; tx?: unknown; ty?: unknown }): Result {
+    if (!p || typeof p.towerId !== 'number' || typeof p.tx !== 'number' || typeof p.ty !== 'number') return { ok: false, error: 'Bad request' };
+    return this.sim.setGroundTarget(uid, p.towerId, p.tx, p.ty);
+  }
+
   sendTroops(uid: string, p: { packId?: unknown; targetPlayerId?: unknown }): Result {
     if (!p || typeof p.packId !== 'string') return { ok: false, error: 'Bad request' };
     const target = typeof p.targetPlayerId === 'string' ? p.targetPlayerId : undefined;
@@ -212,7 +217,16 @@ export class Match {
   }
 
   speedVote(uid: string, p: { value?: unknown }): Result {
-    return this.sim.setSpeedVote(uid, typeof p?.value === 'boolean' ? p.value : undefined);
+    const player = this.sim.players.get(uid);
+    const hadVoted = player?.speedVote ?? false;
+    const result = this.sim.setSpeedVote(uid, typeof p?.value === 'boolean' ? p.value : undefined);
+    if (result.ok && !hadVoted && player?.speedVote) {
+      this.io
+        .to(this.channel)
+        .except(userChannel(uid))
+        .emit(EV.toast, { kind: 'info', text: `${player.name} wants to speed up — press ×2 to agree` });
+    }
+    return result;
   }
 
   setConnected(uid: string, connected: boolean): void {

@@ -50,9 +50,9 @@ export interface ArenaDef {
 
 export const ARENAS: ArenaDef[] = [
   { index: 0, id: 'meadow', name: 'Meadow Outpost', trophies: 0, emoji: '🌿', colors: ['#2f7d46', '#174a2a', '#8de07f'], towers: ['archer', 'crossbow', 'builder', 'cannon', 'frost', 'sniper'], troops: ['grunts', 'runners', 'swarm', 'brutes'], maps: ['greenfield'] },
-  { index: 1, id: 'canyon', name: 'Canyon Fort', trophies: 300, emoji: '🏜️', colors: ['#b8672e', '#5e2c12', '#ffc27a'], towers: ['mine', 'flame'], troops: ['knights'], maps: ['canyon'] },
+  { index: 1, id: 'canyon', name: 'Canyon Fort', trophies: 300, emoji: '🏜️', colors: ['#b8672e', '#5e2c12', '#ffc27a'], towers: ['mine', 'flame', 'logroller'], troops: ['knights'], maps: ['canyon'] },
   { index: 2, id: 'frost', name: 'Frost Keep', trophies: 700, emoji: '❄️', colors: ['#3f8fd1', '#163a66', '#bfe8ff'], towers: ['tesla', 'venom'], troops: ['healers'], maps: ['crossroads'] },
-  { index: 3, id: 'thunder', name: 'Thunder Peak', trophies: 1200, emoji: '⚡', colors: ['#6d4fd6', '#271a5e', '#ffe066'], towers: ['mortar'], troops: ['splitters'], maps: ['spiral'] },
+  { index: 3, id: 'thunder', name: 'Thunder Peak', trophies: 1200, emoji: '⚡', colors: ['#6d4fd6', '#271a5e', '#ffe066'], towers: ['mortar', 'catapult'], troops: ['splitters'], maps: ['spiral'] },
   { index: 4, id: 'shadow', name: 'Shadow Citadel', trophies: 1800, emoji: '🌑', colors: ['#3b2f52', '#120d1d', '#c084fc'], towers: ['prism'], troops: ['shields'], maps: [] },
   { index: 5, id: 'dragon', name: 'Dragon Spire', trophies: 2600, emoji: '🐉', colors: ['#c0392b', '#3d0d0a', '#ffb347'], towers: ['totem'], troops: ['warlord'], maps: [] },
   { index: 6, id: 'legendary', name: 'Legendary Arena', trophies: 3500, emoji: '👑', colors: ['#d4a017', '#3a2a00', '#fff3b0'], towers: [], troops: [], maps: [] },
@@ -96,6 +96,8 @@ export const TOWER_RARITY: Record<TowerType, Rarity> = {
   venom: 'epic',
   prism: 'legendary',
   totem: 'legendary',
+  logroller: 'rare',
+  catapult: 'epic',
 };
 
 export const STARTER_TOWERS: TowerType[] = ['archer', 'crossbow', 'builder', 'cannon', 'frost', 'sniper'];

@@ -15,7 +15,7 @@ import {
   towerMaxHp,
   WAVES,
 } from '../../shared/config';
-import { MAPS, type GameMap } from '../../shared/maps';
+import { MAPS, pointOnPath, type GameMap } from '../../shared/maps';
 import type {
   BoardSnap,
   EnemyTuple,
@@ -211,7 +211,8 @@ export class GameSim implements SimContext {
         alive: true,
         connected: true,
         left: false,
-        loadout: (init.loadout ?? [...TOWER_TYPES]).slice(0, 6),
+        // Account loadouts are validated at six cards; sandbox seats intentionally carry all towers.
+        loadout: (init.loadout ?? [...TOWER_TYPES]).slice(0, TOWER_TYPES.length),
         troops: (init.troops ?? [...PACK_IDS]).slice(),
         towerMult,
         cardLevels,
@@ -512,7 +513,7 @@ export class GameSim implements SimContext {
     const board = this.boards[boardId];
     if (!board || !board.defenders.includes(pid)) return fail('You can only build on your own board');
     if (!board.alive) return fail('Board eliminated');
-    const err = placementError(board, tx, ty);
+    const err = placementError(board, tx, ty, type);
     if (err) return fail(err);
     if (type === 'mine') {
       const mines = board.towers.filter((t) => t.owner === pid && t.type === 'mine').length;
@@ -521,6 +522,7 @@ export class GameSim implements SimContext {
     const cost = TOWERS[type].levels[0].cost;
     if (p.money < cost) return fail('Not enough money');
     p.money -= cost;
+    const firstRoad = pointOnPath(board.map.paths[0], 1);
     const t: Tower = {
       id: this.nextId(),
       boardId,
@@ -551,6 +553,8 @@ export class GameSim implements SimContext {
       builderY: ty + 0.5,
       builderTarget: -1,
       builderRepairing: false,
+      targetX: Math.max(0.5, Math.min(board.map.width - 0.5, firstRoad.x)),
+      targetY: Math.max(0.5, Math.min(board.map.height - 0.5, firstRoad.y)),
     };
     board.towers.push(t);
     board.tileTower.set(ty * board.map.width + tx, t);
@@ -630,7 +634,7 @@ export class GameSim implements SimContext {
     if (t.tx === tx && t.ty === ty) return fail('Already there');
     const key = (x: number, y: number) => y * board.map.width + x;
     board.tileTower.delete(key(t.tx, t.ty));
-    const err = placementError(board, tx, ty);
+    const err = placementError(board, tx, ty, t.type);
     if (err) {
       board.tileTower.set(key(t.tx, t.ty), t);
       return fail(err);
@@ -659,7 +663,23 @@ export class GameSim implements SimContext {
     if (typeof o === 'string') return fail(o);
     if (!(TARGET_MODES as readonly string[]).includes(mode)) return fail('Unknown targeting mode');
     if (!TOWERS[o.t.type].attacks) return fail('This tower does not attack');
+    if (TOWERS[o.t.type].groundTarget) return fail('Use the impact point for this tower');
     o.t.targeting = mode;
+    o.board.towersVersion++;
+    return { ok: true };
+  }
+
+  /** Change the persistent impact tile for a manually aimed tower. */
+  setGroundTarget(pid: string, towerId: number, tx: number, ty: number): Result {
+    const o = this.ownedTower(pid, towerId);
+    if (typeof o === 'string') return fail(o);
+    if (!TOWERS[o.t.type].groundTarget) return fail('This tower does not use an impact point');
+    if (!Number.isInteger(tx) || !Number.isInteger(ty)) return fail('Invalid target tile');
+    if (tx < 0 || ty < 0 || tx >= o.board.map.width || ty >= o.board.map.height) return fail('Target is outside the map');
+    o.t.targetX = tx + 0.5;
+    o.t.targetY = ty + 0.5;
+    o.t.targetId = -1;
+    o.t.angle = Math.atan2(o.t.targetY - o.t.y, o.t.targetX - o.t.x);
     o.board.towersVersion++;
     return { ok: true };
   }
@@ -765,6 +785,8 @@ export class GameSim implements SimContext {
       mult: t.mult,
       hp: t.hp,
       maxHp: t.maxHp,
+      targetX: round2(t.targetX),
+      targetY: round2(t.targetY),
     }));
   }
 

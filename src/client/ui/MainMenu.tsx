@@ -121,12 +121,15 @@ export function CreateGame() {
   const [busy, setBusy] = useState(false);
   const create = async () => {
     setBusy(true);
-    await act(EV.roomCreate, { mode, mapId, difficulty, isPublic });
+    await act(EV.roomCreate, { mode, mapId, difficulty, isPublic, sandbox: true, equalLevels: true });
     setBusy(false);
   };
   return (
     <div className="panel">
-      <div className="panel-title">🏰 Create a game</div>
+      <div className="panel-title">🧪 Create a sandbox game</div>
+      <div className="callout blue" style={{ marginBottom: 12 }}>
+        Every player gets every turret and troop on every map. Sandbox games do not award campaign stars, trophies, quests, or other progression.
+      </div>
       <div className="mode-cards">
         {(Object.keys(MODE_INFO) as GameMode[]).map((m) => (
           <button key={m} className={`mode-card ${mode === m ? 'active' : ''}`} onClick={() => setMode(m)}>
@@ -177,7 +180,7 @@ export function CreateGame() {
         </div>
         <span className="spacer" />
         <button className="btn btn-primary btn-lg" disabled={busy} onClick={() => void create()}>
-          Create game
+          Create sandbox
         </button>
       </div>
     </div>
@@ -208,10 +211,10 @@ export function BrowseGames() {
             <div className="browse-row" key={r.code}>
               <div style={{ minWidth: 0 }}>
                 <div style={{ fontWeight: 700 }} className="ellipsis">
-                  {MODE_ICON[r.mode]} {MODE_INFO[r.mode].label}
+                  {r.sandbox ? '🧪 Sandbox' : `${MODE_ICON[r.mode]} ${MODE_INFO[r.mode].label}`}
                 </div>
                 <div className="muted ellipsis" style={{ fontSize: 12 }}>
-                  {MAPS[r.mapId].name} · {DIFFICULTY[r.difficulty].label} · host {r.hostName}
+                  {r.sandbox ? `${MODE_INFO[r.mode].short} · all turrets · ` : ''}{MAPS[r.mapId].name} · {DIFFICULTY[r.difficulty].label} · host {r.hostName}
                 </div>
               </div>
               <MapBadge mapId={r.mapId} />

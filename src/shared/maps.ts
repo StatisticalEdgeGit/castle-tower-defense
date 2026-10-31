@@ -63,6 +63,16 @@ export interface GameMap {
   theme: MapTheme;
 }
 
+/** True when a build square shares an edge with at least one road square. */
+export function isRoadAdjacent(map: GameMap, tx: number, ty: number): boolean {
+  for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+    const x = tx + dx;
+    const y = ty + dy;
+    if (x >= 0 && y >= 0 && x < map.width && y < map.height && map.tiles[y * map.width + x] === TILE_PATH) return true;
+  }
+  return false;
+}
+
 const DEFS: MapDef[] = [
   {
     id: 'greenfield',

@@ -18,7 +18,8 @@ type Effect =
   | { kind: 'text'; t0: number; dur: number; x: number; y: number; text: string; color: string; size: number }
   | { kind: 'flash'; t0: number; dur: number; color: string }
   | { kind: 'banner'; t0: number; dur: number; text: string; sub: string; color: string }
-  | { kind: 'cone'; t0: number; dur: number; x: number; y: number; a: number; r: number; c: number };
+  | { kind: 'cone'; t0: number; dur: number; x: number; y: number; a: number; r: number; c: number }
+  | { kind: 'log'; t0: number; dur: number; pts: number[]; width: number };
 
 export const MIN_BOARD_ZOOM = 1;
 export const MAX_BOARD_ZOOM = 2.5;
@@ -359,13 +360,16 @@ export class BoardRenderer {
       case 'repair':
         this.effects.push({ kind: 'ring', t0: t, dur: 550, x: fx.x, y: fx.y, r: 0.65, color: 'rgba(90,255,150,1)', fill: 'rgba(90,255,150,0.2)' });
         break;
+      case 'log':
+        if (!mini) this.effects.push({ kind: 'log', t0: t, dur: 520, pts: fx.pts, width: fx.width });
+        break;
       case 'wave':
         if (mini) return;
         this.effects.push({
           kind: 'banner',
           t0: t,
           dur: 1900,
-          text: fx.boss ? `BOSS WAVE ${fx.wave}` : `WAVE ${fx.wave}`,
+          text: fx.boss ? `BOSS WAVE ${fx.wave} STARTING` : `WAVE ${fx.wave} STARTING`,
           sub: fx.boss ? 'A boss approaches!' : '',
           color: fx.boss ? '#ff4d6d' : '#ffffff',
         });
@@ -462,7 +466,9 @@ export class BoardRenderer {
     // towers
     const buffed = new Set(bB.buffed);
     for (const t of towers) {
-      const target = game.aims.get(t.id);
+      const target = TOWERS[t.type].groundTarget
+        ? Math.atan2(t.targetY - (t.ty + 0.5), t.targetX - (t.tx + 0.5))
+        : game.aims.get(t.id);
       let a = this.angles.get(t.id) ?? -Math.PI / 2;
       if (target !== undefined) a = angleLerp(a, target, Math.min(1, dt * 14));
       this.angles.set(t.id, a);
@@ -500,6 +506,34 @@ export class BoardRenderer {
         ctx.setLineDash([4, 3]);
         ctx.strokeRect(t.tx * s + 1, t.ty * s + 1, s - 2, s - 2);
         ctx.setLineDash([]);
+      }
+    }
+
+    // A selected catapult shows its saved blast circle. While retargeting, the
+    // marker follows the pointer so the next impact is unambiguous.
+    if (isMain) {
+      const targetId = ui.groundTargetTowerId ?? ui.selectedTower;
+      const aimed = targetId === null ? null : game.findTower(targetId);
+      if (aimed && aimed.boardId === this.boardId && TOWERS[aimed.type].groundTarget) {
+        const live = ui.groundTargetTowerId === aimed.id && ui.hover ? { x: ui.hover.tx + 0.5, y: ui.hover.ty + 0.5 } : { x: aimed.targetX, y: aimed.targetY };
+        const radius = TOWERS[aimed.type].levels[aimed.level - 1].splash ?? 1;
+        ctx.save();
+        ctx.fillStyle = 'rgba(255,155,55,0.13)';
+        ctx.strokeStyle = 'rgba(255,205,110,0.95)';
+        ctx.lineWidth = 2;
+        ctx.setLineDash([5, 4]);
+        ctx.beginPath();
+        ctx.arc(live.x * s, live.y * s, radius * s, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.beginPath();
+        ctx.moveTo((live.x - 0.22) * s, live.y * s);
+        ctx.lineTo((live.x + 0.22) * s, live.y * s);
+        ctx.moveTo(live.x * s, (live.y - 0.22) * s);
+        ctx.lineTo(live.x * s, (live.y + 0.22) * s);
+        ctx.stroke();
+        ctx.restore();
       }
     }
 
@@ -559,12 +593,12 @@ export class BoardRenderer {
 
     // cannon / mortar shells
     for (const sh of interpolateShells(bA, bB, frame.alpha)) {
-      const big = sh.kind === 1 ? 1.5 : 1;
+      const big = sh.kind === 2 ? 1.8 : sh.kind === 1 ? 1.5 : 1;
       ctx.fillStyle = 'rgba(0,0,0,0.3)';
       ctx.beginPath();
       ctx.ellipse(sh.x * s + s * 0.05 * big, sh.y * s + s * 0.15 * big, s * 0.09 * big, s * 0.05 * big, 0, 0, Math.PI * 2);
       ctx.fill();
-      ctx.fillStyle = sh.kind === 1 ? '#3a3d32' : '#1d1d1d';
+      ctx.fillStyle = sh.kind === 2 ? '#5b3a20' : sh.kind === 1 ? '#3a3d32' : '#1d1d1d';
       ctx.beginPath();
       ctx.arc(sh.x * s, sh.y * s, s * 0.1 * big, 0, Math.PI * 2);
       ctx.fill();
@@ -599,7 +633,7 @@ export class BoardRenderer {
         alpha: preview.ok ? 0.8 : 0.4,
         time,
       });
-    } else if (isMain && ui.hover && !ui.buildType && ui.moveTowerId === null) {
+    } else if (isMain && ui.hover && !ui.buildType && ui.moveTowerId === null && ui.groundTargetTowerId === null) {
       const tw = game.towerAt(this.boardId, ui.hover.tx, ui.hover.ty);
       if (tw) {
         ctx.strokeStyle = 'rgba(255,255,255,0.6)';
@@ -743,6 +777,38 @@ export class BoardRenderer {
           ctx.arc(e.x * s, e.y * s, e.r * s, e.a - cone, e.a + cone);
           ctx.closePath();
           ctx.fill();
+          break;
+        }
+        case 'log': {
+          const pairs: { x: number; y: number }[] = [];
+          for (let i = 0; i + 1 < e.pts.length; i += 2) pairs.push({ x: e.pts[i], y: e.pts[i + 1] });
+          if (pairs.length < 2) break;
+          const lengths: number[] = [0];
+          for (let i = 1; i < pairs.length; i++) lengths.push(lengths[i - 1] + Math.hypot(pairs[i].x - pairs[i - 1].x, pairs[i].y - pairs[i - 1].y));
+          const wanted = lengths[lengths.length - 1] * Math.min(1, p * 1.12);
+          let seg = 1;
+          while (seg < lengths.length - 1 && lengths[seg] < wanted) seg++;
+          const a = pairs[seg - 1];
+          const b = pairs[seg];
+          const span = Math.max(1e-6, lengths[seg] - lengths[seg - 1]);
+          const f = Math.max(0, Math.min(1, (wanted - lengths[seg - 1]) / span));
+          const x = a.x + (b.x - a.x) * f;
+          const y = a.y + (b.y - a.y) * f;
+          const angle = Math.atan2(b.y - a.y, b.x - a.x);
+          ctx.save();
+          ctx.globalAlpha = Math.min(1, (1 - p) * 2.5);
+          ctx.translate(x * s, y * s);
+          ctx.rotate(angle);
+          const grad = ctx.createLinearGradient(0, -e.width * s * 0.5, 0, e.width * s * 0.5);
+          grad.addColorStop(0, '#4b2815');
+          grad.addColorStop(0.45, '#b7793f');
+          grad.addColorStop(1, '#57301a');
+          ctx.fillStyle = grad;
+          ctx.fillRect(-e.width * s * 0.22, -e.width * s * 0.48, e.width * s * 0.44, e.width * s * 0.96);
+          ctx.strokeStyle = '#e1ad68';
+          ctx.lineWidth = Math.max(1, s * 0.025);
+          ctx.strokeRect(-e.width * s * 0.22, -e.width * s * 0.48, e.width * s * 0.44, e.width * s * 0.96);
+          ctx.restore();
           break;
         }
         case 'flash': {

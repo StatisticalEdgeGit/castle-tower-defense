@@ -2,6 +2,7 @@ node_modules
 dist
 data
 .git
+.claude
 *.log
 coverage
 .vite

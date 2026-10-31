@@ -10,7 +10,7 @@
 // while our own board is leaking. One gold mine is bought once a few towers are
 // already shooting; mines and war totems are upgraded like attacking towers.
 import { manualRepairCost, SEND_PACKS, TOWERS } from '../../shared/config';
-import { pointOnPath, TILE_BUILDABLE, type GameMap } from '../../shared/maps';
+import { isRoadAdjacent, pointOnPath, TILE_BUILDABLE, type GameMap } from '../../shared/maps';
 import { arenaForTrophies, BOT_LEVEL_BY_ARENA, towerPool, troopPool } from '../../shared/progression';
 import { mulberry32 } from '../../shared/rng';
 import { PACK_IDS, type PackId, type TargetMode, type TowerType } from '../../shared/types';
@@ -57,6 +57,18 @@ export function coverageMap(map: GameMap, range: number, minRange = 0): Float32A
   return cov;
 }
 
+/** A manually aimed global tower has the same road access from every build square. */
+function globalCoverageMap(map: GameMap): Float32Array {
+  const key = `${map.id}:global`;
+  let cov = covCache.get(key);
+  if (cov) return cov;
+  cov = new Float32Array(map.width * map.height);
+  const road = map.paths.reduce((sum, path) => sum + path.length, 0);
+  for (let i = 0; i < cov.length; i++) if (map.tiles[i] === TILE_BUILDABLE) cov[i] = road;
+  covCache.set(key, cov);
+  return cov;
+}
+
 const TYPE_FACTOR: Record<TowerType, number> = {
   archer: 1.0,
   crossbow: 1.25,
@@ -71,6 +83,8 @@ const TYPE_FACTOR: Record<TowerType, number> = {
   venom: 1.3,
   prism: 1.2,
   totem: 0,
+  logroller: 1.55,
+  catapult: 1.25,
 };
 
 /** Rough effective dps used for bot decisions (not used by the sim). */
@@ -101,6 +115,12 @@ export function levelDps(type: TowerType, level: number): number {
       break;
     case 'mortar':
       dps *= 2.2;
+      break;
+    case 'logroller':
+      dps *= 2.4;
+      break;
+    case 'catapult':
+      dps *= 2.1;
       break;
     case 'venom':
       dps += (l.poisonDps ?? 0) * (l.poisonMaxStacks ?? 1) * 0.8;
@@ -147,7 +167,7 @@ export function botProfileForTrophies(trophies: number): { skill: number; thinkE
 /** Arena-appropriate loadout and army for a bot. */
 export function botLoadout(arena: number): { towers: TowerType[]; troops: PackId[] } {
   const pool = towerPool(arena);
-  const order: TowerType[] = ['archer', 'crossbow', 'frost', 'sniper', 'cannon', 'builder', 'tesla', 'venom', 'flame', 'mortar', 'prism', 'totem'];
+  const order: TowerType[] = ['archer', 'crossbow', 'frost', 'sniper', 'cannon', 'builder', 'logroller', 'tesla', 'venom', 'flame', 'mortar', 'catapult', 'prism', 'totem'];
   const towers = order.filter((t) => pool.includes(t)).slice(0, 6);
   const troops = troopPool(arena).slice(-5);
   return { towers, troops };
@@ -247,10 +267,13 @@ export class Bot {
         if (a) actions.push(a);
         continue;
       }
-      const cov = coverageMap(map, def.levels[0].range, def.levels[0].minRange ?? 0);
+      const cov = def.groundTarget ? globalCoverageMap(map) : coverageMap(map, def.levels[0].range, def.levels[0].minRange ?? 0);
       const tiles: { i: number; c: number }[] = [];
       for (let i = 0; i < cov.length; i++) {
         if (cov[i] <= 0 || board.tileTower.has(i)) continue;
+        const tx = i % map.width;
+        const ty = Math.floor(i / map.width);
+        if (def.roadside && !isRoadAdjacent(map, tx, ty)) continue;
         tiles.push({ i, c: cov[i] });
       }
       if (!tiles.length) continue;
@@ -284,8 +307,8 @@ export class Bot {
       }
       if (!TOWERS[t.type].attacks) continue;
       const def = TOWERS[t.type];
-      const covNow = coverageMap(map, def.levels[t.level - 1].range, def.levels[t.level - 1].minRange ?? 0)[t.ty * map.width + t.tx];
-      const covNext = coverageMap(map, def.levels[t.level].range, def.levels[t.level].minRange ?? 0)[t.ty * map.width + t.tx];
+      const covNow = (def.groundTarget ? globalCoverageMap(map) : coverageMap(map, def.levels[t.level - 1].range, def.levels[t.level - 1].minRange ?? 0))[t.ty * map.width + t.tx];
+      const covNext = (def.groundTarget ? globalCoverageMap(map) : coverageMap(map, def.levels[t.level].range, def.levels[t.level].minRange ?? 0))[t.ty * map.width + t.tx];
       const gain = (this.utility(t.type, t.level + 1, covNext) - this.utility(t.type, t.level, covNow)) * t.mult;
       const cost = def.levels[t.level].cost;
       // slight preference for upgrading once the board is filling up

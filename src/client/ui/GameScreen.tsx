@@ -1,16 +1,16 @@
 import { useCallback, useEffect, useRef, useState, type Ref } from 'react';
 import { armoredDps, minePaybackWaves, sendRole, shownDps, upgradeSpend } from '../../shared/combatMath';
-import { DIFFICULTY, ECONOMY, ENEMIES, manualRepairCost, MODE_INFO, PLAYER_COLORS, SEND_PACKS, TARGET_MODE_LABEL, TOWERS, waveHpMultiplier } from '../../shared/config';
+import { DIFFICULTY, ECONOMY, ENEMIES, manualRepairCost, MODE_INFO, PLAYER_COLORS, SEND_PACKS, TARGET_MODE_LABEL, TOWERS } from '../../shared/config';
 import { MAPS } from '../../shared/maps';
 import { EV, type Snapshot } from '../../shared/protocol';
 import { ICONS, STARTER_ICONS } from '../../shared/progression';
 import { PACK_IDS, TARGET_MODES, type PackId, type TowerType } from '../../shared/types';
-import { previewWave } from '../../shared/wavePreview';
 import { cuesForBoard, playCue, toggleMuted, unlockAudio, useMuted } from '../game/audio';
 import { game, useEmotes, useGameUi, useSnapshot } from '../game/gameState';
 import { emoteDef, ProfileIcon } from './hub/bits';
 import {
   attachBoardInput,
+  beginGroundTarget,
   beginMove,
   cancelPlacementEdit,
   confirmPlacement,
@@ -207,7 +207,7 @@ function Shop({ firstRef }: { firstRef?: Ref<HTMLButtonElement> }) {
           const mines = type === 'mine' ? ownedMineCount() : 0;
           const capped = type === 'mine' && mines >= ECONOMY.maxMinesPerPlayer;
           const can = !!me && me.alive && me.money >= cost && !capped;
-          const hotkey = String(i + 1);
+          const hotkey = i < 9 ? String(i + 1) : null;
           const cap = type === 'mine' ? `, ${mines} of ${ECONOMY.maxMinesPerPlayer} mines` : '';
           return (
             <button
@@ -217,14 +217,12 @@ function Shop({ firstRef }: { firstRef?: Ref<HTMLButtonElement> }) {
               className={`shop-card ${ui.buildType === type ? 'active' : ''} ${can ? '' : 'disabled'}`}
               aria-pressed={ui.buildType === type}
               aria-disabled={!can}
-              aria-keyshortcuts={hotkey}
-              aria-label={`${def.name}, $${cost}${cap}. ${def.blurb} Tap, then tap the map. Press ${hotkey}.`}
+              aria-keyshortcuts={hotkey ?? undefined}
+              aria-label={`${def.name}, $${cost}${cap}. ${def.blurb} Tap, then tap the map.${hotkey ? ` Press ${hotkey}.` : ''}`}
               onPointerDown={(e) => onShopPointerDown(type, e)}
               onClick={() => onShopClick(type)}
             >
-              <span className="key" aria-hidden="true">
-                {hotkey}
-              </span>
+              {hotkey && <span className="key" aria-hidden="true">{hotkey}</span>}
               <TowerIcon type={type} size={38} />
               <span className="name">{def.name}</span>
               <span className="cost">
@@ -307,8 +305,11 @@ function TowerPanel({ backRef, onBack }: { backRef: Ref<HTMLButtonElement>; onBa
           {def.attacks && row('DPS', Math.round(shownDps(t.type, t.level, mult)), next ? Math.round(shownDps(t.type, t.level + 1, mult)) : undefined)}
           {def.attacks && !def.ignoresArmor && !def.beam && row(`vs armor ${armor}`, Math.round(armoredDps(t.type, t.level, armor, mult)), next ? Math.round(armoredDps(t.type, t.level + 1, armor, mult)) : undefined)}
           {def.attacks && row('Range', cur.range, next?.range)}
+          {def.groundTarget && row('Range', 'Entire map')}
           {row('Splash', cur.splash, next?.splash)}
           {row('Slow', pct(cur.slow), pct(next?.slow))}
+          {row('Knockback', cur.knockback, next?.knockback)}
+          {row('Piercing roll', cur.pierceDistance ? `${cur.pierceDistance} tiles` : undefined, next?.pierceDistance ? `${next.pierceDistance} tiles` : undefined)}
           {row('Chains', cur.chains, next?.chains)}
           {row('Income / wave', cur.income ? `$${scaled(cur.income)}` : undefined, next?.income ? `$${scaled(next.income)}` : undefined)}
           {cur.pulse || next?.pulse ? row('Pulse', cur.pulse ? 'all in range' : 'no', next?.pulse ? 'all in range' : undefined) : null}
@@ -380,7 +381,7 @@ function TowerPanel({ backRef, onBack }: { backRef: Ref<HTMLButtonElement>; onBa
               This turret already used its free move.
             </div>
           )}
-          {def.attacks && (
+          {def.attacks && !def.groundTarget && (
             <>
               <div className="section-label" id="targeting-label">
                 Targeting <span className="kbd">T</span>
@@ -400,10 +401,20 @@ function TowerPanel({ backRef, onBack }: { backRef: Ref<HTMLButtonElement>; onBa
               </div>
             </>
           )}
+          {def.groundTarget && (
+            <button
+              type="button"
+              className={`btn btn-sm ${ui.groundTargetTowerId === t.id ? 'active' : ''}`}
+              style={{ marginTop: 8, width: '100%' }}
+              onClick={() => beginGroundTarget(t.id)}
+            >
+              {ui.groundTargetTowerId === t.id ? 'Click an impact tile…' : 'Set impact point'}
+            </button>
+          )}
         </>
       ) : (
         <div className="hint" style={{ marginTop: 8 }}>
-          Targeting: {TARGET_MODE_LABEL[t.targeting]} · only {owner?.name ?? 'the owner'} can upgrade or sell this tower.
+          {def.groundTarget ? 'Manual impact point' : `Targeting: ${TARGET_MODE_LABEL[t.targeting]}`} · only {owner?.name ?? 'the owner'} can upgrade or sell this tower.
         </div>
       )}
     </div>
@@ -697,7 +708,7 @@ function SideMenu() {
   );
 }
 
-type DrawerId = 'towers' | 'wave' | 'menu';
+type DrawerId = 'towers' | 'menu';
 
 function OptionsDock({
   drawer,
@@ -732,7 +743,7 @@ function OptionsDock({
     const r = await request(EV.setFace, { icon });
     if (!r.ok) toast('error', r.error);
   };
-  const title = drawer === 'towers' ? 'Towers' : drawer === 'wave' ? 'Next wave' : 'Menu';
+  const title = drawer === 'towers' ? 'Towers' : 'Menu';
 
   return (
     <div className="options-dock">
@@ -745,7 +756,6 @@ function OptionsDock({
             </button>
           </div>
           {drawer === 'towers' && <SideMenu />}
-          {drawer === 'wave' && <WaveScout />}
           {drawer === 'menu' && (
             <div className="menu-drawer">
               <div className="hint">
@@ -833,9 +843,6 @@ function OptionsDock({
           onClick={() => toggle('towers')}
         >
           🏰
-        </button>
-        <button type="button" className={`map-btn ${drawer === 'wave' ? 'on' : ''}`} aria-pressed={drawer === 'wave'} aria-label="Next wave" title="Next wave" onClick={() => toggle('wave')}>
-          👾
         </button>
         <button type="button" className={`map-btn ${drawer === 'menu' ? 'on' : ''}`} aria-pressed={drawer === 'menu'} aria-label="Menu" title="Menu" onClick={() => toggle('menu')}>
           ⚙
@@ -972,6 +979,16 @@ function PlaceBar() {
   const ui = useGameUi();
   const moving = ui.moveTowerId !== null;
   const placing = !!ui.buildType;
+  if (ui.groundTargetTowerId !== null) {
+    return (
+      <div className="place-bar">
+        <div className="msg"><span>Choose the catapult impact tile</span></div>
+        <button type="button" className="btn btn-sm" onClick={cancelPlacementEdit}>
+          Cancel <span className="kbd">Esc</span>
+        </button>
+      </div>
+    );
+  }
   if (!ui.staged || (!moving && !placing)) return null;
   const preview = placementPreview(ui.viewBoard, ui);
   const miss = placing && !!preview?.ok && preview.reaches === false;
@@ -991,46 +1008,9 @@ function PlaceBar() {
   );
 }
 
-function WaveScout() {
-  const snap = useSnapshot(4);
-  const ui = useGameUi();
-  const info = game.info;
-  if (!snap || !info || snap.phase === 'over') return null;
-  const board = info.boards.find((b) => b.id === ui.viewBoard) ?? info.boards[0];
-  const upcoming = snap.wave + 1;
-  if (info.finalWave !== null && upcoming > info.finalWave) {
-    return (
-      <div className="wave-scout" role="status">
-        Final wave — clear the path to win.
-      </div>
-    );
-  }
-  const preview = previewWave(upcoming, info.waveSeed, board?.defenders.length ?? 1);
-  const title = snap.wave === 0 ? 'First wave' : 'Next wave';
-  return (
-    <div className="wave-scout" role="status" aria-label={`${title} ${preview.wave}, ${preview.total} enemies`}>
-      <span className="scout-title">
-        {preview.boss ? '👑' : '👾'} {title} {preview.wave}
-      </span>
-      {preview.units.map((u) => (
-        <span key={u.type} className={`scout-unit${u.debut ? ' debut' : ''}`} aria-label={u.debut ? `${u.name} joins this wave` : u.name}>
-          <EnemyIcon type={u.type} size={22} />
-          <span>×{u.count}</span>
-          {ENEMIES[u.type].movement === 'air' && <span title="Flying enemy">✈</span>}
-          {u.debut && <span className="scout-new">NEW</span>}
-        </span>
-      ))}
-      <span className="hint">{preview.total} on this board</span>
-      <span className="muted scout-hp" aria-label="How much tougher each enemy is compared with wave 1">
-        HP ×{waveHpMultiplier(upcoming).toFixed(2)}
-      </span>
-    </div>
-  );
-}
-
 const CONTROLS: [string, string][] = [
   ['Face', 'Open that player’s map, watch it, or send troops'],
-  ['Towers / 👾 / ⚙', 'Show or hide the turret, wave, and menu panels'],
+  ['Towers / ⚙', 'Show or hide the turret and menu panels'],
   ['1–6', 'Choose a turret'],
   ['Tap, then tap', 'Arm a turret, then tap a square to place it'],
   ['Drag on the map', 'Slide the ghost, then let go to place it'],
@@ -1042,6 +1022,7 @@ const CONTROLS: [string, string][] = [
   ['Esc / right click', 'Cancel placement or selection'],
   ['U / S / M', 'Upgrade, sell, or move the selected turret'],
   ['T', 'Next targeting mode'],
+  ['Catapult', 'Select it, choose Set impact point, then click any map tile'],
   ['Space', 'Ready, or call the next co-op wave'],
   ['F', 'Vote for double speed (co-op)'],
   ['Q', 'Next send target (free-for-all)'],

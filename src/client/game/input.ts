@@ -141,8 +141,8 @@ export async function confirmPlacement(keepBuilding = false): Promise<void> {
 /** Drop the in-progress place or move. If nothing is in progress, clear the selection. */
 export function cancelPlacementEdit(): void {
   const ui = game.ui;
-  if (ui.buildType || ui.moveTowerId !== null || ui.staged) {
-    game.setUi({ buildType: null, moveTowerId: null, staged: null });
+  if (ui.buildType || ui.moveTowerId !== null || ui.groundTargetTowerId !== null || ui.staged) {
+    game.setUi({ buildType: null, moveTowerId: null, groundTargetTowerId: null, staged: null });
     return;
   }
   game.setUi({ selectedTower: null });
@@ -161,6 +161,21 @@ export function beginMove(towerId: number): void {
     buildType: null,
     selectedTower: towerId,
     staged: { tx: t.tx, ty: t.ty },
+    viewBoard: t.boardId,
+    groundTargetTowerId: null,
+  });
+}
+
+/** Arm a manually aimed tower so the next map click becomes its impact point. */
+export function beginGroundTarget(towerId: number): void {
+  const t = game.findTower(towerId);
+  if (!t || t.owner !== game.myId || !TOWERS[t.type].groundTarget) return;
+  game.setUi({
+    groundTargetTowerId: towerId,
+    selectedTower: towerId,
+    buildType: null,
+    moveTowerId: null,
+    staged: null,
     viewBoard: t.boardId,
   });
 }
@@ -200,6 +215,7 @@ export function toggleBuild(type: TowerType): void {
     selectedTower: null,
     staged: null,
     viewBoard: my.boardId,
+    groundTargetTowerId: null,
   });
 }
 
@@ -208,7 +224,7 @@ export function cycleTargeting(): void {
   const id = game.ui.selectedTower;
   if (id === null) return;
   const t = game.findTower(id);
-  if (!t || t.owner !== game.myId || !TOWERS[t.type].attacks) return;
+  if (!t || t.owner !== game.myId || !TOWERS[t.type].attacks || TOWERS[t.type].groundTarget) return;
   const mode = nextTargetMode(t.targeting);
   void request(EV.setTargeting, { towerId: id, mode }).then((r) => {
     if (!r.ok) toast('error', r.error);
@@ -256,6 +272,7 @@ export function onShopPointerDown(type: TowerType, e: ReactPointerEvent): void {
       viewBoard: my.boardId,
       hover: tile,
       staged: tile,
+      groundTargetTowerId: null,
     });
   };
   trackPointer(
@@ -302,7 +319,7 @@ export function sellSelected(): void {
   const doSell = () =>
     void request<{ refund?: number }>(EV.sellTower, { towerId: id }).then((r) => {
       if (!r.ok) toast('error', r.error);
-      else game.setUi({ selectedTower: null, moveTowerId: null, staged: null });
+      else game.setUi({ selectedTower: null, moveTowerId: null, groundTargetTowerId: null, staged: null });
     });
   if (t.invested >= EXPENSIVE_SELL) {
     confirmDialog({
@@ -384,7 +401,7 @@ export function attachBoardInput(canvas: HTMLCanvasElement, renderer: BoardRende
     if ((t?.tx ?? -1) !== (h?.tx ?? -1) || (t?.ty ?? -1) !== (h?.ty ?? -1)) game.setUi({ hover: t });
     const tw = t ? game.towerAt(game.ui.viewBoard, t.tx, t.ty) : null;
     const canDrag = !!tw && tw.owner === game.myId && tw.freeMove !== false;
-    canvas.style.cursor = game.ui.buildType || game.ui.moveTowerId !== null ? 'crosshair' : canDrag || renderer.zoomLevel > 1 ? 'grab' : tw ? 'pointer' : 'default';
+    canvas.style.cursor = game.ui.buildType || game.ui.moveTowerId !== null || game.ui.groundTargetTowerId !== null ? 'crosshair' : canDrag || renderer.zoomLevel > 1 ? 'grab' : tw ? 'pointer' : 'default';
   };
   const onLeave = () => game.setUi({ hover: null });
   const onDown = (e: PointerEvent) => {
@@ -412,6 +429,14 @@ export function attachBoardInput(canvas: HTMLCanvasElement, renderer: BoardRende
     const t = renderer.tileAt(e.clientX, e.clientY);
     if (!t) {
       if (renderer.zoomLevel > 1) startPan(e);
+      return;
+    }
+    if (game.ui.groundTargetTowerId !== null) {
+      const towerId = game.ui.groundTargetTowerId;
+      void request(EV.setGroundTarget, { towerId, tx: t.tx, ty: t.ty }).then((r) => {
+        if (!r.ok) toast('error', r.error);
+        else game.setUi({ groundTargetTowerId: null, selectedTower: towerId, hover: t });
+      });
       return;
     }
     if (game.ui.buildType || game.ui.moveTowerId !== null) {

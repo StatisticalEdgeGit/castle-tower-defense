@@ -5,7 +5,7 @@ export type Difficulty = 'easy' | 'normal' | 'hard';
 export type MapId = 'greenfield' | 'canyon' | 'crossroads' | 'spiral';
 
 /** The six classic towers come first: they are the default loadout (hotkeys 1–6). */
-export const TOWER_TYPES = ['archer', 'cannon', 'frost', 'sniper', 'tesla', 'mine', 'builder', 'crossbow', 'flame', 'mortar', 'venom', 'prism', 'totem'] as const;
+export const TOWER_TYPES = ['archer', 'cannon', 'frost', 'sniper', 'tesla', 'mine', 'builder', 'crossbow', 'flame', 'mortar', 'venom', 'prism', 'totem', 'logroller', 'catapult'] as const;
 export type TowerType = (typeof TOWER_TYPES)[number];
 export const CLASSIC_TOWERS: TowerType[] = ['archer', 'cannon', 'frost', 'sniper', 'tesla', 'mine'];
 

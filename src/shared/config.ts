@@ -138,6 +138,10 @@ export interface TowerLevel {
   splash?: number;
   slow?: number;
   slowDuration?: number;
+  /** progress pushed backwards along the road when the hit lands (tiles) */
+  knockback?: number;
+  /** log roller: length of road traversed by one piercing log */
+  pierceDistance?: number;
   /** tesla: total number of targets hit (including the first) */
   chains?: number;
   /** frost L3: hits every enemy in range */
@@ -194,6 +198,10 @@ export interface TowerDef {
   support?: boolean;
   /** Dispatches a worker to repair damaged structures. */
   builder?: boolean;
+  /** May only be built on a square orthogonally adjacent to the road. */
+  roadside?: boolean;
+  /** Fires at a persistent, player-selected map coordinate instead of acquiring normally. */
+  groundTarget?: boolean;
   levels: [TowerLevel, TowerLevel, TowerLevel];
 }
 
@@ -387,6 +395,36 @@ export const TOWERS: Record<TowerType, TowerDef> = {
       { cost: 225, damage: 0, rate: 0, range: 2, buffRadius: 2, buffDmg: 0.15, buffRate: 0.1 },
       { cost: 200, damage: 0, rate: 0, range: 2.5, buffRadius: 2.5, buffDmg: 0.2, buffRate: 0.12 },
       { cost: 350, damage: 0, rate: 0, range: 3, buffRadius: 3, buffDmg: 0.25, buffRate: 0.15 },
+    ],
+  },
+  logroller: {
+    type: 'logroller',
+    name: 'Log Roller',
+    blurb: 'Roadside only. Rolls a piercing log through a stretch of the track, knocking back and slowing every ground troop it hits.',
+    hotkey: '',
+    attacks: true,
+    structureHp: 520,
+    roadside: true,
+    levels: [
+      { cost: 240, damage: 34, rate: 0.55, range: 2.2, slow: 0.4, slowDuration: 1.1, knockback: 0.45, pierceDistance: 4.5 },
+      { cost: 210, damage: 58, rate: 0.6, range: 2.6, slow: 0.45, slowDuration: 1.25, knockback: 0.55, pierceDistance: 5.5 },
+      { cost: 400, damage: 95, rate: 0.7, range: 3.0, slow: 0.5, slowDuration: 1.4, knockback: 0.7, pierceDistance: 6.5 },
+    ],
+  },
+  catapult: {
+    type: 'catapult',
+    name: 'Catapult',
+    blurb: 'Global reach. Fires slowly at a chosen impact point for heavy splash, knockback and slow.',
+    hotkey: '',
+    attacks: true,
+    structureHp: 600,
+    projectileSpeed: 10,
+    homing: false,
+    groundTarget: true,
+    levels: [
+      { cost: 500, damage: 160, rate: 0.18, range: 0, splash: 1.4, slow: 0.4, slowDuration: 1.3, knockback: 0.35 },
+      { cost: 425, damage: 260, rate: 0.2, range: 0, splash: 1.65, slow: 0.45, slowDuration: 1.5, knockback: 0.45 },
+      { cost: 750, damage: 440, rate: 0.22, range: 0, splash: 1.9, slow: 0.5, slowDuration: 1.7, knockback: 0.6 },
     ],
   },
 };
