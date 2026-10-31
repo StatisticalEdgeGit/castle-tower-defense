@@ -8,8 +8,12 @@ export interface UserRecord {
   id: string;
   username: string;
   usernameLower: string;
-  salt: string;
-  hash: string;
+  /**
+   * scrypt salt + hash. Both absent (or empty) = a passwordless "device account": the player
+   * picked a name and is remembered by their browser's session token until they set a password.
+   */
+  salt?: string;
+  hash?: string;
   createdAt: number;
   stats: PlayerStats;
   /** progression / meta-game state (filled in by the progression layer) */
@@ -18,6 +22,7 @@ export interface UserRecord {
 
 export interface SessionRecord {
   userId: string;
+  /** ignored while the account has no password (device accounts never expire) */
   expiresAt: number;
 }
 

@@ -17,7 +17,7 @@ import {
   type RoomState,
 } from '../shared/protocol';
 import { CLASSIC_TOWERS, type Difficulty, type GameMode, type MapId, type TowerType } from '../shared/types';
-import type { Identity } from './auth';
+import { hasPassword, type Identity } from './auth';
 import type { JsonDb } from './db';
 import { BROWSE_CHANNEL, fail, roomChannel, TokenBucket, userChannel, type IO, type Result, type Sock } from './io';
 import { Match, type MatchSeat } from './match';
@@ -576,7 +576,10 @@ export class RoomManager implements RoomsBridge {
     this.db.save();
     this.hooks.afterMatch?.(room, results, match);
     for (const p of results.players) {
-      if (!p.guest && !p.bot) this.social.emitTo(p.id, EV.hello, { user: { id: p.id, name: p.name, guest: false }, stats: this.db.userById(p.id)?.stats ?? null });
+      if (p.guest || p.bot) continue;
+      const u = this.db.userById(p.id);
+      // the client replaces its user with this one, so `secured` must be carried over
+      this.social.emitTo(p.id, EV.hello, { user: { id: p.id, name: p.name, guest: false, secured: !!u && hasPassword(u) }, stats: u?.stats ?? null });
     }
     if (!this.rooms.has(room.id)) return;
     if (room.ranked) {

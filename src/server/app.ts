@@ -90,6 +90,41 @@ function bearer(req: express.Request): string | null {
   return null;
 }
 
+// Backup copy of the session token in an HttpOnly cookie. iPhone Safari can wipe localStorage
+// after ~7 days without a visit; /api/restore brings the player back from this cookie.
+export const TOKEN_COOKIE = 'ctd_token';
+const TOKEN_COOKIE_MAX_AGE_MS = 400 * 86400_000;
+
+function tokenCookieOptions(req: express.Request): express.CookieOptions {
+  return { httpOnly: true, sameSite: 'lax', path: '/', secure: req.secure };
+}
+
+function setTokenCookie(req: express.Request, res: express.Response, token: string): void {
+  res.cookie(TOKEN_COOKIE, token, { ...tokenCookieOptions(req), maxAge: TOKEN_COOKIE_MAX_AGE_MS });
+}
+
+function clearTokenCookie(req: express.Request, res: express.Response): void {
+  res.clearCookie(TOKEN_COOKIE, tokenCookieOptions(req));
+}
+
+/** Read one cookie from the raw Cookie header (no cookie-parser dependency). */
+export function readCookie(req: express.Request, name: string): string | null {
+  const header = req.headers.cookie;
+  if (!header) return null;
+  for (const part of header.split(';')) {
+    const eq = part.indexOf('=');
+    if (eq < 0 || part.slice(0, eq).trim() !== name) continue;
+    let value = part.slice(eq + 1).trim();
+    if (value.startsWith('"') && value.endsWith('"') && value.length >= 2) value = value.slice(1, -1);
+    try {
+      return decodeURIComponent(value) || null;
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
 export async function startServer(opts: ServerOptions): Promise<RunningServer> {
   const db = new JsonDb(opts.dbPath);
   const auth = new AuthService(db);
@@ -121,26 +156,68 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
   app.post('/api/register', async (req, res) => {
     if (limited(req)) return res.status(429).json({ ok: false, error: 'Too many attempts, slow down' });
     const r = await auth.register(req.body?.username, req.body?.password);
+    if (r.ok) setTokenCookie(req, res, r.token);
+    res.status(r.ok ? 200 : 400).json(r);
+  });
+  // passwordless "device account": pick a name, the browser remembers the player
+  app.post('/api/start', (req, res) => {
+    if (limited(req)) return res.status(429).json({ ok: false, error: 'Too many attempts, slow down' });
+    const r = auth.start(req.body?.name);
+    if (r.ok) setTokenCookie(req, res, r.token);
     res.status(r.ok ? 200 : 400).json(r);
   });
   app.post('/api/login', async (req, res) => {
     if (limited(req)) return res.status(429).json({ ok: false, error: 'Too many attempts, slow down' });
     const r = await auth.login(req.body?.username, req.body?.password);
+    if (r.ok) setTokenCookie(req, res, r.token);
     res.status(r.ok ? 200 : 401).json(r);
   });
+  app.post('/api/set-password', async (req, res) => {
+    if (limited(req)) return res.status(429).json({ ok: false, error: 'Too many attempts, slow down' });
+    const token = bearer(req);
+    const who = auth.resolve(token);
+    if (!who) return res.status(401).json({ ok: false, error: 'Not logged in' });
+    if (who.guest) return res.status(403).json({ ok: false, error: 'Guests cannot set a password' });
+    const r = await auth.setPassword(token, req.body?.password);
+    if (r.ok) setTokenCookie(req, res, r.token);
+    res.status(r.ok ? 200 : 400).json(r);
+  });
+  // guests are never written to the cookie: they only live in server memory
   app.post('/api/guest', (req, res) => {
     if (limited(req)) return res.status(429).json({ ok: false, error: 'Too many attempts, slow down' });
     const r = auth.guest(req.body?.name);
     res.status(r.ok ? 200 : 400).json(r);
   });
   app.post('/api/logout', (req, res) => {
-    auth.logout(bearer(req));
+    const token = bearer(req);
+    auth.logout(token);
+    // Only drop the backup cookie when it belongs to the player logging out: another tab may be
+    // a different player whose cookie must survive.
+    const cookie = readCookie(req, TOKEN_COOKIE);
+    if (cookie && (!token || cookie === token)) clearTokenCookie(req, res);
     res.json({ ok: true });
   });
   app.get('/api/me', (req, res) => {
-    const user = auth.resolve(bearer(req));
+    const token = bearer(req);
+    const user = auth.resolve(token);
     if (!user) return res.status(401).json({ ok: false, error: 'Not logged in' });
+    // keep the backup cookie fresh while the player is active (unless it holds another player)
+    if (!user.guest && token) {
+      const cookie = readCookie(req, TOKEN_COOKIE);
+      if (!cookie || cookie === token) setTokenCookie(req, res, token);
+    }
     res.json({ ok: true, user, stats: auth.stats(user.id) });
+  });
+  // bring a player back from the cookie when the browser lost its localStorage token
+  app.get('/api/restore', (req, res) => {
+    const token = readCookie(req, TOKEN_COOKIE);
+    const user = token ? auth.resolve(token) : null;
+    if (!token || !user || user.guest) {
+      if (token) clearTokenCookie(req, res);
+      return res.json({ ok: false });
+    }
+    setTokenCookie(req, res, token);
+    res.json({ ok: true, token, user, stats: auth.stats(user.id) });
   });
   app.get('/api/server-info', (req, res) => {
     const port = (httpServer.address() as { port: number } | null)?.port ?? opts.port ?? 0;
