@@ -24,7 +24,8 @@ describe('path following', () => {
     const sim = makeSim('coop', 1);
     const b = sim.boards[0];
     const path = b.map.paths[0];
-    const e = spawnAt(sim, b, 'grunt', 0); // speed 1 tile/s
+    const e = spawnAt(sim, b, 'grunt', 0);
+    e.speed = 1; // pin to 1 tile/s so the distances below test path geometry, not grunt balance
     expect(e.x).toBeCloseTo(-0.5);
     expect(e.y).toBeCloseTo(3.5);
     for (let i = 0; i < 60; i++) moveEnemies(b, 0.05, () => {});
@@ -97,6 +98,7 @@ describe('damage rules', () => {
     const sim = makeSim('coop', 1);
     const b = sim.boards[0];
     const g = spawnAt(sim, b, 'grunt', 1);
+    g.speed = 1; // pin to 1 tile/s so the movement check below tests slow math, not grunt balance
     applySlow(g, 0.35, 1.5);
     expect(g.slowAmt).toBeCloseTo(0.35);
     applySlow(g, 0.55, 1.6);
